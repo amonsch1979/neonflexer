@@ -4,6 +4,8 @@
 
 ![MAGICTOOLBOX NEONFLEXER](screenshot.png)
 
+[![Watch the Demo](https://img.shields.io/badge/Demo-Watch%20on%20YouTube-red?style=for-the-badge&logo=youtube)](https://youtube.com/YOUR_VIDEO_ID_HERE)
+
 ## Features
 
 - **3D Tube Drawing** — Click-to-place or freehand draw on XZ, XY, or YZ planes
