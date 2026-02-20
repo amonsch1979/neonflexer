@@ -131,6 +131,8 @@ export class SceneManager {
       this._groundLogo.renderOrder = -1;
       this._groundLogoAspect = aspect;
       this.scene.add(this._groundLogo);
+    }, undefined, () => {
+      console.warn('Ground logo not found — skipping');
     });
   }
 

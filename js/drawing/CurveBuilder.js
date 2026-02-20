@@ -32,17 +32,17 @@ export class CurveBuilder {
   static getTubularSegments(curve) {
     if (!curve) return 64;
     const length = curve.getLength();
-    return Math.max(64, Math.round(length * 300));
+    return Math.min(2000, Math.max(64, Math.round(length * 300)));
   }
 
   /**
    * Calculate extrude steps for square/rect profiles.
-   * ~300 steps per meter.
+   * ~300 steps per meter, capped at 2000 to prevent GPU overload on long tubes.
    */
   static getExtrudeSteps(curve) {
     if (!curve) return 64;
     const length = curve.getLength();
-    return Math.max(64, Math.round(length * 300));
+    return Math.min(2000, Math.max(64, Math.round(length * 300)));
   }
 
   /**

@@ -30,9 +30,9 @@ export class ClickPlaceMode {
     this.onComplete = null;
     this.onPreviewUpdate = null;
 
-    this._onMouseMove = this._onMouseMove.bind(this);
-    this._onMouseDown = this._onMouseDown.bind(this);
-    this._onMouseUp = this._onMouseUp.bind(this);
+    this._onPointerMove = this._onMouseMove.bind(this);
+    this._onPointerDown = this._onMouseDown.bind(this);
+    this._onPointerUp = this._onMouseUp.bind(this);
     this._onDblClick = this._onDblClick.bind(this);
     this._onKeyDown = this._onKeyDown.bind(this);
 
@@ -54,9 +54,9 @@ export class ClickPlaceMode {
     // Reset plane to origin when starting fresh
     this.sceneManager.resetPlaneAnchor();
     const canvas = this.sceneManager.canvas;
-    canvas.addEventListener('mousemove', this._onMouseMove);
-    canvas.addEventListener('mousedown', this._onMouseDown);
-    canvas.addEventListener('mouseup', this._onMouseUp);
+    canvas.addEventListener('pointermove', this._onPointerMove);
+    canvas.addEventListener('pointerdown', this._onPointerDown);
+    canvas.addEventListener('pointerup', this._onPointerUp);
     canvas.addEventListener('dblclick', this._onDblClick);
     document.addEventListener('keydown', this._onKeyDown);
     canvas.style.cursor = 'crosshair';
@@ -71,9 +71,9 @@ export class ClickPlaceMode {
     this._hideLengthOverlay();
     this.points = [];
     const canvas = this.sceneManager.canvas;
-    canvas.removeEventListener('mousemove', this._onMouseMove);
-    canvas.removeEventListener('mousedown', this._onMouseDown);
-    canvas.removeEventListener('mouseup', this._onMouseUp);
+    canvas.removeEventListener('pointermove', this._onPointerMove);
+    canvas.removeEventListener('pointerdown', this._onPointerDown);
+    canvas.removeEventListener('pointerup', this._onPointerUp);
     canvas.removeEventListener('dblclick', this._onDblClick);
     document.removeEventListener('keydown', this._onKeyDown);
     canvas.style.cursor = '';

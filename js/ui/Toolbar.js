@@ -12,6 +12,8 @@ export class Toolbar {
     this.onPlaneChange = null;    // (plane) => {}
     this.onExport = null;         // () => {}
     this.onDeleteTube = null;     // () => {}
+    this.onDuplicateTube = null;  // () => {}
+    this.onHelp = null;           // () => {}
     this.onGridSizeChange = null; // (sizeM) => {}
 
     this._build();
@@ -22,20 +24,22 @@ export class Toolbar {
 
     // Drawing tools group
     const drawGroup = this._createGroup();
-    this.selectBtn = this._addButton(drawGroup, 'select', 'Select (1)', this._selectIcon());
-    this.clickPlaceBtn = this._addButton(drawGroup, 'click-place', 'Click Place (2)', this._clickPlaceIcon());
-    this.freehandBtn = this._addButton(drawGroup, 'freehand', 'Freehand (3)', this._freehandIcon());
+    this.selectBtn = this._addButton(drawGroup, 'select', 'Select / Move', this._selectIcon(), '1');
+    this.clickPlaceBtn = this._addButton(drawGroup, 'click-place', 'Click Place', this._clickPlaceIcon(), '2');
+    this.freehandBtn = this._addButton(drawGroup, 'freehand', 'Freehand Draw', this._freehandIcon(), '3');
     this.container.appendChild(drawGroup);
 
     // Edit group
     const editGroup = this._createGroup();
-    this.deleteBtn = this._addButton(editGroup, 'delete-tube', 'Delete Tube (Del)', this._deleteIcon());
+    this.duplicateBtn = this._addButton(editGroup, 'duplicate-tube', 'Duplicate Tube', this._duplicateIcon(), 'Ctrl+D');
+    this.duplicateBtn.classList.remove('active');
+    this.deleteBtn = this._addButton(editGroup, 'delete-tube', 'Delete Tube', this._deleteIcon(), 'Del');
     this.deleteBtn.classList.remove('active');
     this.container.appendChild(editGroup);
 
     // Options group
     const optGroup = this._createGroup();
-    this.snapBtn = this._addButton(optGroup, 'snap', 'Grid Snap (G)', this._snapIcon());
+    this.snapBtn = this._addButton(optGroup, 'snap', 'Grid Snap', this._snapIcon(), 'G');
     this.snapBtn.classList.toggle('active', this.snapEnabled);
     this.container.appendChild(optGroup);
 
@@ -45,9 +49,9 @@ export class Toolbar {
     planeLabel.className = 'toolbar-label';
     planeLabel.textContent = 'Plane:';
     planeGroup.appendChild(planeLabel);
-    this.xzBtn = this._addButton(planeGroup, 'plane-XZ', 'Ground XZ (F1)', this._planeXZIcon());
-    this.xyBtn = this._addButton(planeGroup, 'plane-XY', 'Front XY (F2)', this._planeXYIcon());
-    this.yzBtn = this._addButton(planeGroup, 'plane-YZ', 'Side YZ (F3)', this._planeYZIcon());
+    this.xzBtn = this._addButton(planeGroup, 'plane-XZ', 'Ground XZ', this._planeXZIcon(), 'F1');
+    this.xyBtn = this._addButton(planeGroup, 'plane-XY', 'Front XY', this._planeXYIcon(), 'F2');
+    this.yzBtn = this._addButton(planeGroup, 'plane-YZ', 'Side YZ', this._planeYZIcon(), 'F3');
     this._setPlaneActive('XZ');
     this.container.appendChild(planeGroup);
 
@@ -135,9 +139,15 @@ export class Toolbar {
 
     // Export group
     const exportGroup = this._createGroup();
-    this.exportBtn = this._addButton(exportGroup, 'export', 'Export MVR (Ctrl+E)', this._exportIcon());
+    this.exportBtn = this._addButton(exportGroup, 'export', 'Export MVR', this._exportIcon(), 'Ctrl+E');
     this.exportBtn.classList.remove('active');
     this.container.appendChild(exportGroup);
+
+    // Help button
+    const helpGroup = this._createGroup();
+    this.helpBtn = this._addButton(helpGroup, 'help', 'Help & Shortcuts', this._helpIcon(), '?');
+    this.helpBtn.classList.remove('active');
+    this.container.appendChild(helpGroup);
 
     // Logo + App name
     const branding = document.createElement('div');
@@ -176,14 +186,23 @@ export class Toolbar {
     return div;
   }
 
-  _addButton(group, id, title, svgContent) {
+  _addButton(group, id, title, svgContent, shortcutLabel) {
     const btn = document.createElement('button');
     btn.className = 'toolbar-btn';
     btn.dataset.tool = id;
-    btn.title = title;
+    btn.dataset.tooltip = title;
     btn.innerHTML = svgContent;
     btn.addEventListener('click', () => this._onButtonClick(id));
     group.appendChild(btn);
+
+    // Show shortcut label next to the button
+    if (shortcutLabel) {
+      const kbd = document.createElement('span');
+      kbd.className = 'toolbar-shortcut';
+      kbd.textContent = shortcutLabel;
+      group.appendChild(kbd);
+    }
+
     return btn;
   }
 
@@ -194,6 +213,14 @@ export class Toolbar {
     }
     if (id === 'delete-tube') {
       if (this.onDeleteTube) this.onDeleteTube();
+      return;
+    }
+    if (id === 'duplicate-tube') {
+      if (this.onDuplicateTube) this.onDuplicateTube();
+      return;
+    }
+    if (id === 'help') {
+      if (this.onHelp) this.onHelp();
       return;
     }
     if (id === 'snap') {
@@ -267,5 +294,11 @@ export class Toolbar {
   }
   _planeYZIcon() {
     return `<svg viewBox="0 0 24 24"><text x="3" y="17" font-size="13" font-weight="bold" fill="currentColor" font-family="sans-serif">YZ</text></svg>`;
+  }
+  _duplicateIcon() {
+    return `<svg viewBox="0 0 24 24"><rect x="8" y="2" width="12" height="14" rx="2" fill="none" stroke="currentColor" stroke-width="1.5"/><rect x="4" y="8" width="12" height="14" rx="2" fill="none" stroke="currentColor" stroke-width="1.5"/></svg>`;
+  }
+  _helpIcon() {
+    return `<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" fill="none" stroke="currentColor" stroke-width="1.5"/><text x="12" y="17" font-size="14" font-weight="bold" fill="currentColor" text-anchor="middle" font-family="sans-serif">?</text></svg>`;
   }
 }

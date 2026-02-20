@@ -20,9 +20,9 @@ export class FreehandMode {
 
     this.onComplete = null;
 
-    this._onMouseDown = this._onMouseDown.bind(this);
-    this._onMouseMove = this._onMouseMove.bind(this);
-    this._onMouseUp = this._onMouseUp.bind(this);
+    this._onPointerDown = this._onMouseDown.bind(this);
+    this._onPointerMove = this._onMouseMove.bind(this);
+    this._onPointerUp = this._onMouseUp.bind(this);
     this._onKeyDown = this._onKeyDown.bind(this);
   }
 
@@ -31,9 +31,9 @@ export class FreehandMode {
     this.drawing = false;
     this.rawPoints = [];
     const canvas = this.sceneManager.canvas;
-    canvas.addEventListener('mousedown', this._onMouseDown);
-    canvas.addEventListener('mousemove', this._onMouseMove);
-    canvas.addEventListener('mouseup', this._onMouseUp);
+    canvas.addEventListener('pointerdown', this._onPointerDown);
+    canvas.addEventListener('pointermove', this._onPointerMove);
+    canvas.addEventListener('pointerup', this._onPointerUp);
     document.addEventListener('keydown', this._onKeyDown);
     canvas.style.cursor = 'crosshair';
   }
@@ -45,9 +45,9 @@ export class FreehandMode {
     this._clearPreview();
     this._hideLengthOverlay();
     const canvas = this.sceneManager.canvas;
-    canvas.removeEventListener('mousedown', this._onMouseDown);
-    canvas.removeEventListener('mousemove', this._onMouseMove);
-    canvas.removeEventListener('mouseup', this._onMouseUp);
+    canvas.removeEventListener('pointerdown', this._onPointerDown);
+    canvas.removeEventListener('pointermove', this._onPointerMove);
+    canvas.removeEventListener('pointerup', this._onPointerUp);
     document.removeEventListener('keydown', this._onKeyDown);
     canvas.style.cursor = '';
   }

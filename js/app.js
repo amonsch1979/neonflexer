@@ -2,8 +2,6 @@ import { SceneManager } from './scene/SceneManager.js';
 import { TubeManager } from './tube/TubeManager.js';
 import { DrawingManager } from './drawing/DrawingManager.js';
 import { UIManager } from './ui/UIManager.js';
-import { GLBExporter } from './export/GLBExporter.js';
-
 /**
  * NeonFlex 3D Tube Designer - Main Application
  */
@@ -83,13 +81,23 @@ class App {
         return;
       }
 
-      // Delete selected tube: Delete key (only in select mode)
-      if (e.key === 'Delete' && this.drawingManager.currentMode === 'select') {
-        // Skip if PointEditor already handled this (deleting a control point)
-        if (e._handledByPointEditor) return;
+      // Delete selected tube: Delete/Backspace key (only in select mode)
+      if ((e.key === 'Delete' || e.key === 'Backspace') && this.drawingManager.currentMode === 'select') {
         const tube = this.tubeManager.selectedTube;
         if (tube) {
           this.tubeManager.deleteTube(tube);
+        }
+        return;
+      }
+
+      // Duplicate tube: Ctrl+D
+      if ((e.ctrlKey || e.metaKey) && (e.key === 'd' || e.key === 'D')) {
+        e.preventDefault();
+        const tube = this.tubeManager.selectedTube;
+        if (tube) {
+          this.tubeManager.duplicateTube(tube);
+          const statusEl = document.getElementById('status-text');
+          if (statusEl) statusEl.textContent = `Duplicated "${tube.name}"`;
         }
         return;
       }
@@ -101,8 +109,19 @@ class App {
         return;
       }
 
-      // Escape: cancel drawing / deselect
+      // Help: ? or F12
+      if (e.key === '?' || e.key === 'F12') {
+        e.preventDefault();
+        this.uiManager.toggleHelp();
+        return;
+      }
+
+      // Escape: cancel drawing / deselect / close help
       if (e.key === 'Escape') {
+        if (this.uiManager.helpVisible) {
+          this.uiManager.toggleHelp();
+          return;
+        }
         if (this.drawingManager.currentMode !== 'select') {
           this.uiManager.setTool('select');
         }

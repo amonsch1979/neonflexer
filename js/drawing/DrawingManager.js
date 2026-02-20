@@ -16,12 +16,16 @@ export class DrawingManager {
     this.freehandMode = new FreehandMode(sceneManager);
     this.pointEditor = new PointEditor(sceneManager);
 
+    this.onDrawingComplete = null; // () => {} — called after a tube is finished
+
     this.clickPlaceMode.onComplete = (points) => {
       this.tubeManager.createTube(points);
+      if (this.onDrawingComplete) this.onDrawingComplete();
     };
 
     this.freehandMode.onComplete = (points) => {
       this.tubeManager.createTube(points);
+      if (this.onDrawingComplete) this.onDrawingComplete();
     };
 
     this.pointEditor.onPointMoved = () => {};

@@ -87,6 +87,39 @@ export class TubeManager {
   }
 
   /**
+   * Duplicate an existing tube with a small offset.
+   * @param {TubeModel} sourceTube
+   * @param {THREE.Vector3} [offset] - optional position offset (default 0.1m on X)
+   * @returns {TubeModel}
+   */
+  duplicateTube(sourceTube, offset) {
+    const clone = sourceTube.clone();
+    const off = offset || new THREE.Vector3(0.1, 0, 0);
+    for (const pt of clone.controlPoints) {
+      pt.add(off);
+    }
+    this.tubes.push(clone);
+    this._buildTubeMesh(clone);
+    this.selectTube(clone);
+    if (this.onTubeCreated) this.onTubeCreated(clone);
+    return clone;
+  }
+
+  /**
+   * Move all control points of a tube by a delta vector, then rebuild.
+   * @param {TubeModel} tube
+   * @param {THREE.Vector3} delta
+   */
+  moveTube(tube, delta) {
+    for (const pt of tube.controlPoints) {
+      pt.add(delta);
+    }
+    this._disposeTubeMesh(tube);
+    this._buildTubeMesh(tube);
+    if (this.onTubeUpdated) this.onTubeUpdated(tube);
+  }
+
+  /**
    * Get tube by ID.
    */
   getTubeById(id) {

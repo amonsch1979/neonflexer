@@ -2,7 +2,11 @@ import * as THREE from 'three';
 import { TransformControls } from 'three/addons/controls/TransformControls.js';
 
 /**
- * Select and move individual control points on a tube.
+ * Select and move individual control points or entire tubes.
+ *
+ * Modes:
+ *   - Click a control point helper → move that single point
+ *   - Click a tube body           → move the whole tube
  */
 export class PointEditor {
   constructor(sceneManager) {
@@ -13,10 +17,16 @@ export class PointEditor {
     this.selectedHelper = null;
     this.transformControls = null;
 
+    // Whole-tube move state
+    this._movingTube = null;       // TubeModel being moved
+    this._tubePivot = null;        // invisible Object3D that TransformControls attaches to
+    this._tubeMoveStart = null;    // position at drag start
+
     this.onPointMoved = null;    // (tubeModel) => {}
     this.onPointDeleted = null;  // (tubeModel) => {}
+    this.onTubeMoved = null;     // (tubeModel) => {}
 
-    this._onMouseDown = this._onMouseDown.bind(this);
+    this._onPointerDown = this._onMouseDown.bind(this);
     this._onKeyDown = this._onKeyDown.bind(this);
 
     // Create transform controls
@@ -30,21 +40,33 @@ export class PointEditor {
     this.transformControls.enabled = false;
     sceneManager.scene.add(this.transformControls.getHelper());
 
+    // Invisible pivot for whole-tube moves
+    this._tubePivot = new THREE.Object3D();
+    this._tubePivot.name = '__tube_pivot';
+    sceneManager.scene.add(this._tubePivot);
+
     // Track dragging state
     this._isDragging = false;
     this.transformControls.addEventListener('dragging-changed', (e) => {
       this._isDragging = e.value;
       sceneManager.controls.enabled = !e.value;
       // Rebuild on drag end for final update
-      if (!e.value && this.selectedHelper) {
-        this._onTransformEnd();
+      if (!e.value) {
+        if (this._movingTube) {
+          this._onTubeMoveEnd();
+        } else if (this.selectedHelper) {
+          this._onTransformEnd();
+        }
       }
     });
 
-    // Throttled live preview during drag (update point position only, defer full rebuild)
-    this._dragUpdatePending = false;
+    // Live preview during drag
     this.transformControls.addEventListener('objectChange', () => {
-      this._onTransformChangeLive();
+      if (this._movingTube) {
+        this._onTubeMoveLive();
+      } else {
+        this._onTransformChangeLive();
+      }
     });
   }
 
@@ -52,15 +74,15 @@ export class PointEditor {
     this.active = true;
     this.tubeManager = tubeManager;
     const canvas = this.sceneManager.canvas;
-    canvas.addEventListener('mousedown', this._onMouseDown);
+    canvas.addEventListener('pointerdown', this._onPointerDown);
     document.addEventListener('keydown', this._onKeyDown);
   }
 
   deactivate() {
     this.active = false;
-    this._deselectPoint();
+    this._deselectAll();
     const canvas = this.sceneManager.canvas;
-    canvas.removeEventListener('mousedown', this._onMouseDown);
+    canvas.removeEventListener('pointerdown', this._onPointerDown);
     document.removeEventListener('keydown', this._onKeyDown);
   }
 
@@ -81,7 +103,7 @@ export class PointEditor {
       }
     }
 
-    // Try to pick tube body for selection
+    // Try to pick tube body for selection + whole-tube move
     const bodies = this.tubeManager.getBodyMeshes();
     if (bodies.length > 0) {
       const hits = this.sceneManager.raycastObjects(e.clientX, e.clientY, bodies);
@@ -89,23 +111,24 @@ export class PointEditor {
         const tube = this.tubeManager.getTubeByMesh(hits[0].object);
         if (tube) {
           this.tubeManager.selectTube(tube);
-          this._deselectPoint();
+          this._selectTubeForMove(tube);
         }
         return;
       }
     }
 
     // Click on nothing: deselect
-    this._deselectPoint();
+    this._deselectAll();
   }
 
+  // ── Single control point ──────────────────────────────
+
   _selectPoint(helper) {
+    this._clearTubeMove();
     this.selectedHelper = helper;
     this.transformControls.attach(helper);
     this.transformControls.visible = true;
     this.transformControls.enabled = true;
-
-    // Constrain to XZ plane by default
     this.transformControls.showY = true;
   }
 
@@ -154,12 +177,90 @@ export class PointEditor {
     if (this.onPointMoved) this.onPointMoved(tube);
   }
 
+  // ── Whole tube move ───────────────────────────────────
+
+  _selectTubeForMove(tube) {
+    this._deselectPoint();
+    this._movingTube = tube;
+
+    // Place pivot at the tube's centroid
+    const center = this._getTubeCentroid(tube);
+    this._tubePivot.position.copy(center);
+    this._tubeMoveStart = center.clone();
+
+    this.transformControls.attach(this._tubePivot);
+    this.transformControls.visible = true;
+    this.transformControls.enabled = true;
+    this.transformControls.showY = true;
+  }
+
+  _getTubeCentroid(tube) {
+    const center = new THREE.Vector3();
+    for (const pt of tube.controlPoints) {
+      center.add(pt);
+    }
+    center.divideScalar(tube.controlPoints.length);
+    return center;
+  }
+
+  /** Live preview: move the tube group in the scene (cheap) */
+  _onTubeMoveLive() {
+    if (!this._movingTube || !this._movingTube.group) return;
+    const delta = this._tubePivot.position.clone().sub(this._tubeMoveStart);
+    this._movingTube.group.position.copy(delta);
+  }
+
+  /** On drag end: apply the delta to all control points and rebuild */
+  _onTubeMoveEnd() {
+    const tube = this._movingTube;
+    if (!tube) return;
+
+    const delta = this._tubePivot.position.clone().sub(this._tubeMoveStart);
+
+    // Reset group position (the rebuild will place geometry at the new points)
+    if (tube.group) tube.group.position.set(0, 0, 0);
+
+    if (delta.lengthSq() > 0.000001) {
+      this.tubeManager.moveTube(tube, delta);
+    }
+
+    // Re-place pivot at new centroid for further moves
+    const newCenter = this._getTubeCentroid(tube);
+    this._tubePivot.position.copy(newCenter);
+    this._tubeMoveStart = newCenter.clone();
+
+    if (this.onTubeMoved) this.onTubeMoved(tube);
+  }
+
+  _clearTubeMove() {
+    if (this._movingTube) {
+      // Reset any partial group offset
+      if (this._movingTube.group) {
+        this._movingTube.group.position.set(0, 0, 0);
+      }
+      this._movingTube = null;
+      this._tubeMoveStart = null;
+    }
+  }
+
+  // ── Deselect all ──────────────────────────────────────
+
+  _deselectAll() {
+    this._deselectPoint();
+    this._clearTubeMove();
+    this.transformControls.detach();
+    this.transformControls.visible = false;
+    this.transformControls.enabled = false;
+  }
+
+  // ── Keyboard ──────────────────────────────────────────
+
   _onKeyDown(e) {
     if (!this.active) return;
 
     if ((e.key === 'Delete' || e.key === 'Backspace') && this.selectedHelper) {
       e.preventDefault();
-      e._handledByPointEditor = true; // flag for App keyboard handler
+      e.stopImmediatePropagation(); // prevent App keyboard handler from also firing
       const tubeId = this.selectedHelper.userData.tubeId;
       const pointIndex = this.selectedHelper.userData.pointIndex;
       const tube = this.tubeManager.getTubeById(tubeId);
@@ -168,7 +269,7 @@ export class PointEditor {
       // Don't allow deleting below 2 points
       if (tube.controlPoints.length <= 2) return;
 
-      this._deselectPoint();
+      this._deselectAll();
       tube.deletePoint(pointIndex);
       this.tubeManager.updateTube(tube);
 
@@ -186,6 +287,7 @@ export class PointEditor {
   dispose() {
     this.deactivate();
     this.sceneManager.scene.remove(this.transformControls.getHelper());
+    this.sceneManager.scene.remove(this._tubePivot);
     this.transformControls.dispose();
   }
 }

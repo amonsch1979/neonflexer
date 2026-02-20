@@ -43,8 +43,11 @@ export class TubeGeometryBuilder {
     // Add end caps if not closed
     if (!tubeModel.closed) {
       const merged = this._buildRoundWithCaps(tubeGeo, curve, radius, radialSegments);
-      tubeGeo.dispose();
-      return merged || tubeGeo;
+      if (merged) {
+        tubeGeo.dispose();
+        return merged;
+      }
+      // If merge failed, return original geometry (don't dispose it)
     }
 
     return tubeGeo;

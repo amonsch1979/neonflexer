@@ -1,7 +1,6 @@
 import { Toolbar } from './Toolbar.js';
 import { PropertiesPanel } from './PropertiesPanel.js';
 import { TubeListPanel } from './TubeListPanel.js';
-import { GLBExporter } from '../export/GLBExporter.js';
 import { MVRExporter } from '../export/MVRExporter.js';
 
 /**
@@ -10,6 +9,7 @@ import { MVRExporter } from '../export/MVRExporter.js';
 export class UIManager {
   constructor(app) {
     this.app = app;
+    this.helpVisible = false;
 
     // Toolbar
     this.toolbar = new Toolbar(document.getElementById('toolbar'));
@@ -18,6 +18,8 @@ export class UIManager {
     this.toolbar.onPlaneChange = (plane) => this._onPlaneChange(plane);
     this.toolbar.onExport = () => this._onExport();
     this.toolbar.onDeleteTube = () => this._onDeleteSelected();
+    this.toolbar.onDuplicateTube = () => this._onDuplicateSelected();
+    this.toolbar.onHelp = () => this.toggleHelp();
     this.toolbar.onGridSizeChange = (size) => this._onGridSizeChange(size);
 
     // Length overlay element
@@ -33,6 +35,11 @@ export class UIManager {
     this.tubeListPanel.onDeleteTube = (id) => this._onDeleteTube(id);
     this.tubeListPanel.onToggleVisible = (id) => this._onToggleVisible(id);
 
+    // Switch back to select mode after completing a drawing
+    this.app.drawingManager.onDrawingComplete = () => {
+      this.setTool('select');
+    };
+
     // Connect tube manager callbacks
     const tm = this.app.tubeManager;
     tm.onTubeCreated = () => this._refreshAll();
@@ -42,13 +49,16 @@ export class UIManager {
       this.propertiesPanel.show(tube);
       this._refreshTubeList();
     };
+
+    // Create help overlay (hidden by default)
+    this._createHelpOverlay();
   }
 
   _onToolChange(tool) {
     this.app.drawingManager.setMode(tool);
     const statusEl = document.getElementById('status-text');
     const messages = {
-      'select': 'Select mode — Click a tube to select',
+      'select': 'Select mode — Click tube to select & move, click point to edit',
       'click-place': 'Click Place — Click to add points, double-click/Enter to finish',
       'freehand': 'Freehand — Click and drag to draw, release to finish',
     };
@@ -60,13 +70,11 @@ export class UIManager {
   }
 
   _onPlaneChange(plane) {
-    // Get anchor point from active drawing mode (last placed point)
     const dm = this.app.drawingManager;
     let anchor = null;
     if (dm.currentMode === 'click-place' && dm.clickPlaceMode.points.length > 0) {
       anchor = dm.clickPlaceMode.points[dm.clickPlaceMode.points.length - 1];
     }
-    // Switch the plane, anchored at the last point
     this.app.sceneManager.setDrawingPlane(plane, anchor);
     const names = { XZ: 'Ground (XZ)', XY: 'Front (XY)', YZ: 'Side (YZ)' };
     const statusEl = document.getElementById('status-text');
@@ -95,7 +103,6 @@ export class UIManager {
     if (statusEl) statusEl.textContent = `Grid: ${sizeM}x${sizeM}m`;
   }
 
-  /** Show the big red length overlay in the viewport */
   showLengthOverlay(lengthMeters) {
     if (!this.lengthOverlay) return;
     const mm = (lengthMeters * 1000).toFixed(0);
@@ -103,7 +110,6 @@ export class UIManager {
     this.lengthOverlay.classList.add('visible');
   }
 
-  /** Hide the length overlay */
   hideLengthOverlay() {
     if (!this.lengthOverlay) return;
     this.lengthOverlay.classList.remove('visible');
@@ -114,6 +120,15 @@ export class UIManager {
     const tube = this.app.tubeManager.selectedTube;
     if (tube) {
       this.app.tubeManager.deleteTube(tube);
+    }
+  }
+
+  _onDuplicateSelected() {
+    const tube = this.app.tubeManager.selectedTube;
+    if (tube) {
+      this.app.tubeManager.duplicateTube(tube);
+      const statusEl = document.getElementById('status-text');
+      if (statusEl) statusEl.textContent = `Duplicated "${tube.name}"`;
     }
   }
 
@@ -154,15 +169,85 @@ export class UIManager {
     this.propertiesPanel.show(this.app.tubeManager.selectedTube);
   }
 
-  /** Set active tool from keyboard shortcut */
   setTool(tool) {
     this.toolbar.setTool(tool);
     this._onToolChange(tool);
   }
 
-  /** Set drawing plane from keyboard shortcut */
   setPlane(plane) {
     this.toolbar.setPlane(plane);
     this._onPlaneChange(plane);
+  }
+
+  // ── Help Overlay ──────────────────────────────────────
+
+  _createHelpOverlay() {
+    const overlay = document.createElement('div');
+    overlay.id = 'help-overlay';
+    overlay.innerHTML = `
+      <div class="help-panel">
+        <div class="help-header">
+          <span>MAGICTOOLBOX NEONFLEXER — Keyboard Shortcuts</span>
+          <button class="help-close">&times;</button>
+        </div>
+        <div class="help-body">
+          <div class="help-section">
+            <div class="help-section-title">Tools</div>
+            <div class="help-row"><kbd>1</kbd><span>Select / Move mode</span></div>
+            <div class="help-row"><kbd>2</kbd><span>Click Place mode</span></div>
+            <div class="help-row"><kbd>3</kbd><span>Freehand Draw mode</span></div>
+          </div>
+          <div class="help-section">
+            <div class="help-section-title">Drawing</div>
+            <div class="help-row"><kbd>Click</kbd><span>Place control point</span></div>
+            <div class="help-row"><kbd>Enter</kbd> / <kbd>Dbl-Click</kbd><span>Finish tube</span></div>
+            <div class="help-row"><kbd>Backspace</kbd><span>Undo last point</span></div>
+            <div class="help-row"><kbd>Shift + Drag</kbd><span>Adjust height off-plane</span></div>
+            <div class="help-row"><kbd>Esc</kbd><span>Cancel drawing</span></div>
+          </div>
+          <div class="help-section">
+            <div class="help-section-title">Drawing Plane</div>
+            <div class="help-row"><kbd>F1</kbd><span>Ground plane (XZ)</span></div>
+            <div class="help-row"><kbd>F2</kbd><span>Front plane (XY)</span></div>
+            <div class="help-row"><kbd>F3</kbd><span>Side plane (YZ)</span></div>
+          </div>
+          <div class="help-section">
+            <div class="help-section-title">Editing</div>
+            <div class="help-row"><kbd>Click tube</kbd><span>Select & move whole tube</span></div>
+            <div class="help-row"><kbd>Click point</kbd><span>Move single control point</span></div>
+            <div class="help-row"><kbd>H</kbd><span>Toggle Y-axis on transform gizmo</span></div>
+            <div class="help-row"><kbd>Del</kbd> / <kbd>Backspace</kbd><span>Delete selected point or tube</span></div>
+            <div class="help-row"><kbd>Ctrl + D</kbd><span>Duplicate selected tube</span></div>
+          </div>
+          <div class="help-section">
+            <div class="help-section-title">View & Navigation</div>
+            <div class="help-row"><kbd>Left Mouse</kbd><span>Orbit (select mode)</span></div>
+            <div class="help-row"><kbd>Middle Mouse</kbd><span>Orbit (always)</span></div>
+            <div class="help-row"><kbd>Right Mouse</kbd><span>Pan</span></div>
+            <div class="help-row"><kbd>Scroll</kbd><span>Zoom</span></div>
+            <div class="help-row"><kbd>G</kbd><span>Toggle grid snap</span></div>
+          </div>
+          <div class="help-section">
+            <div class="help-section-title">File</div>
+            <div class="help-row"><kbd>Ctrl + E</kbd><span>Export as MVR</span></div>
+            <div class="help-row"><kbd>?</kbd><span>Toggle this help</span></div>
+          </div>
+        </div>
+      </div>
+    `;
+    document.body.appendChild(overlay);
+    this._helpOverlay = overlay;
+
+    // Close button
+    overlay.querySelector('.help-close').addEventListener('click', () => this.toggleHelp());
+    // Click backdrop to close
+    overlay.addEventListener('click', (e) => {
+      if (e.target === overlay) this.toggleHelp();
+    });
+  }
+
+  toggleHelp() {
+    this.helpVisible = !this.helpVisible;
+    this._helpOverlay.classList.toggle('visible', this.helpVisible);
   }
 }
