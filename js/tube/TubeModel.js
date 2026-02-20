@@ -24,6 +24,7 @@ export class TubeModel {
     this.materialPreset = options.materialPreset || 'milky';
 
     // Pixel config
+    this.pixelMode = options.pixelMode || 'discrete'; // 'discrete' | 'uv-mapped'
     this.pixelsPerMeter = options.pixelsPerMeter || 60;
     this.pixelColor = options.pixelColor || '#ffffff';
     this.pixelEmissive = options.pixelEmissive !== undefined ? options.pixelEmissive : true;
@@ -112,6 +113,7 @@ export class TubeModel {
       heightMm: this.heightMm,
       wallThicknessMm: this.wallThicknessMm,
       materialPreset: this.materialPreset,
+      pixelMode: this.pixelMode,
       pixelsPerMeter: this.pixelsPerMeter,
       pixelColor: this.pixelColor,
       pixelEmissive: this.pixelEmissive,
@@ -137,6 +139,7 @@ export class TubeModel {
       heightMm: this.heightMm,
       wallThicknessMm: this.wallThicknessMm,
       materialPreset: this.materialPreset,
+      pixelMode: this.pixelMode,
       pixelsPerMeter: this.pixelsPerMeter,
       pixelColor: this.pixelColor,
       pixelEmissive: this.pixelEmissive,
@@ -161,6 +164,7 @@ export class TubeModel {
       heightMm: data.heightMm,
       wallThicknessMm: data.wallThicknessMm,
       materialPreset: data.materialPreset,
+      pixelMode: data.pixelMode || 'discrete',
       pixelsPerMeter: data.pixelsPerMeter,
       pixelColor: data.pixelColor,
       pixelEmissive: data.pixelEmissive,

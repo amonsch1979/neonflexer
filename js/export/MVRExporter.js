@@ -1,7 +1,25 @@
 import * as THREE from 'three';
 import { GLTFExporter } from 'three/addons/exporters/GLTFExporter.js';
 import { CurveBuilder } from '../drawing/CurveBuilder.js';
+import { TubeGeometryBuilder } from '../tube/TubeGeometryBuilder.js';
 import { ZipBuilder } from '../utils/ZipBuilder.js';
+
+/**
+ * Helper: extracts a sub-section of a curve using arc-length parameterization.
+ * TubeGeometry built on a SubCurve automatically gets UVs going 0→1 for that section.
+ */
+class SubCurve extends THREE.Curve {
+  constructor(originalCurve, tStart, tEnd) {
+    super();
+    this.original = originalCurve;
+    this.tStart = tStart;
+    this.tEnd = tEnd;
+  }
+  getPoint(t, optionalTarget = new THREE.Vector3()) {
+    const mapped = this.tStart + t * (this.tEnd - this.tStart);
+    return this.original.getPointAt(mapped, optionalTarget);
+  }
+}
 
 /**
  * Export the design as an MVR (My Virtual Rig) file.
@@ -31,19 +49,22 @@ export class MVRExporter {
     // 1. Build the GLB for tube bodies (no pixels)
     const glbData = await this._exportBodiesGLB(tubes);
 
-    // 2. Build the generic LED GDTF fixture
-    const gdtfData = this._buildGenericLEDGdtf();
+    // 2. Check if any tube needs discrete pixel fixtures
+    const hasDiscretePixels = tubes.some(t => t.pixelMode !== 'uv-mapped');
 
-    // 3. Collect all pixel positions per tube
+    // 3. Build the generic LED GDTF fixture (only if needed)
+    const gdtfData = hasDiscretePixels ? this._buildGenericLEDGdtf() : null;
+
+    // 4. Collect all pixel positions per tube
     const tubePixels = this._collectPixelData(tubes);
 
-    // 4. Build GeneralSceneDescription.xml
+    // 5. Build GeneralSceneDescription.xml
     const xml = this._buildMVRXml(tubes, tubePixels);
 
-    // 5. Package into MVR (ZIP)
+    // 6. Package into MVR (ZIP)
     const mvr = new ZipBuilder();
     mvr.addFile('GeneralSceneDescription.xml', xml);
-    mvr.addFile('GenericLED.gdtf', gdtfData);
+    if (gdtfData) mvr.addFile('GenericLED.gdtf', gdtfData);
     mvr.addFile('models/TubeModel.glb', new Uint8Array(glbData));
 
     const mvrData = mvr.build();
@@ -60,14 +81,20 @@ export class MVRExporter {
 
     for (const tube of tubes) {
       if (!tube.bodyMesh) continue;
-      const bodyMat = tube.bodyMesh.material.clone();
-      bodyMat.name = `${tube.name}_Body_${tube.materialPreset}`;
-      const bodyClone = new THREE.Mesh(
-        tube.bodyMesh.geometry.clone(),
-        bodyMat
-      );
-      bodyClone.name = `Tube_${tube.id}_Body`;
-      root.add(bodyClone);
+
+      if (tube.pixelMode === 'uv-mapped') {
+        // Split into parts for Capture's 512-channel texture generator limit
+        this._addUVMappedParts(root, tube);
+      } else {
+        const bodyMat = tube.bodyMesh.material.clone();
+        bodyMat.name = `${tube.name}_Body_${tube.materialPreset}`;
+        const bodyClone = new THREE.Mesh(
+          tube.bodyMesh.geometry.clone(),
+          bodyMat
+        );
+        bodyClone.name = `Tube_${tube.id}_Body`;
+        root.add(bodyClone);
+      }
     }
 
     const exporter = new GLTFExporter();
@@ -75,11 +102,10 @@ export class MVRExporter {
       exporter.parse(
         scene,
         (result) => {
-          // Dispose clones
           scene.traverse(c => {
             if (c.isMesh) { c.geometry?.dispose(); c.material?.dispose(); }
           });
-          resolve(result); // ArrayBuffer
+          resolve(result);
         },
         (error) => {
           scene.traverse(c => {
@@ -92,11 +118,52 @@ export class MVRExporter {
     });
   }
 
+  /**
+   * Split a UV-mapped tube into parts that fit Capture's 512-channel limit.
+   * Each part is a separate mesh with its own material name showing pixel count.
+   */
+  static _addUVMappedParts(root, tube) {
+    const curve = CurveBuilder.build(tube.controlPoints, tube.tension, tube.closed);
+    if (!curve) return;
+
+    const length = CurveBuilder.getLength(curve);
+    const totalPixels = Math.max(1, Math.round(length * tube.pixelsPerMeter));
+    const chPerPixel = Number(tube.dmxChannelsPerPixel) || 3;
+    const maxPxPerPart = Math.floor(512 / chPerPixel);
+    const numParts = Math.ceil(totalPixels / maxPxPerPart);
+
+    for (let p = 0; p < numParts; p++) {
+      const startPx = p * maxPxPerPart;
+      const endPx = Math.min(startPx + maxPxPerPart, totalPixels);
+      const partPx = endPx - startPx;
+
+      const tStart = startPx / totalPixels;
+      const tEnd = endPx / totalPixels;
+
+      // Create sub-curve — TubeGeometry on this will have UVs 0→1 for this section
+      const subCurve = new SubCurve(curve, tStart, tEnd);
+
+      // Build geometry using the standard builder (handles all profiles, skips caps)
+      const partGeo = TubeGeometryBuilder.build(subCurve, tube);
+
+      const mat = tube.bodyMesh.material.clone();
+      const partLabel = numParts > 1
+        ? `_PT${p + 1}_${partPx}px`
+        : `_${totalPixels}px`;
+      mat.name = `${tube.name}_${tube.materialPreset}${partLabel}`;
+
+      const mesh = new THREE.Mesh(partGeo, mat);
+      mesh.name = `Tube_${tube.id}${partLabel}`;
+      root.add(mesh);
+    }
+  }
+
   // ─── Pixel Data ─────────────────────────────────────────────
 
   static _collectPixelData(tubes) {
     const result = [];
     for (const tube of tubes) {
+      if (tube.pixelMode === 'uv-mapped') { result.push([]); continue; }
       const curve = CurveBuilder.build(tube.controlPoints, tube.tension, tube.closed);
       if (!curve) { result.push([]); continue; }
       const { points } = CurveBuilder.getPixelPoints(curve, tube.pixelsPerMeter);
@@ -226,9 +293,9 @@ export class MVRExporter {
       // In MVR, break=0 (fixture DMX input), address = absolute across universes
       let absoluteAddr = (startUniverse - 1) * 512 + startAddress;
 
-      // Build pixel fixtures
+      // Build pixel fixtures (skip for uv-mapped tubes)
       let pixelFixtures = '';
-      for (let pi = 0; pi < pixels.length; pi++) {
+      for (let pi = 0; pi < (tube.pixelMode === 'uv-mapped' ? 0 : pixels.length); pi++) {
         const pos = pixels[pi];
         const uuid = this._uuid();
         // Convert Three.js (Y-up) to MVR (Z-up) in millimeters
