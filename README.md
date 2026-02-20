@@ -4,7 +4,7 @@
 
 ![MAGICTOOLBOX NEONFLEXER](screenshot.png)
 
-[![Watch the Demo](https://img.shields.io/badge/Demo-Watch%20on%20YouTube-red?style=for-the-badge&logo=youtube)](https://youtube.com/YOUR_VIDEO_ID_HERE)
+[![Watch the Demo](https://img.shields.io/badge/Demo-Watch%20on%20YouTube-red?style=for-the-badge&logo=youtube)](https://youtu.be/SFRwDIBtE8Q)
 
 ## Features
 
