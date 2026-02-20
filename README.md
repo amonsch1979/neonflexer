@@ -31,9 +31,12 @@ Open in your browser: **[amonsch1979.github.io/neonflexer](https://amonsch1979.g
 3. **Launch:**
    - **Windows:** Double-click `NEONFLEXER.bat`
    - **Mac/Linux:** Double-click `NEONFLEXER.command`
+     - If macOS blocks the file: **Right-click → Open → Open**
+     - Or run in Terminal: `chmod +x NEONFLEXER.command && ./NEONFLEXER.command`
 4. The app opens automatically in your browser
 
-> No install required on Windows 10/11 — the launcher uses PowerShell as fallback.
+> **Windows 10/11:** No install required — the launcher uses PowerShell as fallback.
+> **Mac:** Requires Python (pre-installed on most Macs) or Node.js.
 
 ## Keyboard Shortcuts
 
