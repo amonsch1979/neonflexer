@@ -2,7 +2,7 @@
 
 3D NeonFlex LED tube designer for lighting professionals. Draw tubes in 3D, configure LED pixels, set DMX patch, and export as MVR for direct import into Capture, WYSIWYG, Depence, or any MVR-compatible visualizer.
 
-> **macOS users:** The downloadable offline version is currently Windows only. Mac users can use the full app online — no install needed.
+> **macOS users:** The downloadable offline version is currently Windows only. Mac users can use the full app online at [neonflexer.netlify.app](https://neonflexer.netlify.app/) — no install needed.
 
 ![MAGICTOOLBOX NEONFLEXER](screenshot.png)
 
@@ -103,7 +103,7 @@ Press `?` to see all keyboard shortcuts and mouse controls at a glance
 
 ### Online (no install)
 
-Open in your browser: **[amonsch1979.github.io/neonflexer](https://amonsch1979.github.io/neonflexer/)**
+Open in your browser: **[neonflexer.netlify.app](https://neonflexer.netlify.app/)**
 
 ### Offline (Windows)
 
@@ -113,7 +113,7 @@ Open in your browser: **[amonsch1979.github.io/neonflexer](https://amonsch1979.g
 4. The app opens automatically in your browser
 
 > **Windows 10/11:** No install required — the launcher uses PowerShell as fallback.
-> **Mac:** Use the online version at the link above.
+> **Mac:** Use the online version at [neonflexer.netlify.app](https://neonflexer.netlify.app/).
 
 ## Keyboard Shortcuts
 
