@@ -28,6 +28,14 @@ export class TubeModel {
     this.pixelColor = options.pixelColor || '#ffffff';
     this.pixelEmissive = options.pixelEmissive !== undefined ? options.pixelEmissive : true;
 
+    // DMX / Patch config
+    this.fixtureId = options.fixtureId || 1;
+    this.dmxUniverse = options.dmxUniverse || 1;
+    this.dmxChannelsPerPixel = options.dmxChannelsPerPixel || 3; // RGB=3, RGBW=4
+    // Clamp address so fixture fits within 512
+    const maxAddr = 512 - this.dmxChannelsPerPixel + 1;
+    this.dmxAddress = Math.min(Math.max(1, options.dmxAddress || 1), maxAddr);
+
     // Curve
     this.tension = options.tension || 0.5;
     this.closed = options.closed || false;
@@ -107,6 +115,10 @@ export class TubeModel {
       pixelsPerMeter: this.pixelsPerMeter,
       pixelColor: this.pixelColor,
       pixelEmissive: this.pixelEmissive,
+      fixtureId: this.fixtureId,
+      dmxUniverse: this.dmxUniverse,
+      dmxAddress: this.dmxAddress,
+      dmxChannelsPerPixel: this.dmxChannelsPerPixel,
       tension: this.tension,
       closed: this.closed,
     });

@@ -68,6 +68,7 @@ export class ClickPlaceMode {
     this.cursorMarker.visible = false;
     this._clearVisuals();
     this._clearHeightLine();
+    this._hideLengthOverlay();
     this.points = [];
     const canvas = this.sceneManager.canvas;
     canvas.removeEventListener('mousemove', this._onMouseMove);
@@ -104,6 +105,7 @@ export class ClickPlaceMode {
       point = this.sceneManager.snapToGrid(point, this.gridSize);
       this.sceneManager.constrainToPlane(point); // re-constrain after snap
     }
+    this.sceneManager.clampToGrid(point);
     this.cursorMarker.position.copy(point);
 
     if (this.points.length > 0) {
@@ -111,6 +113,7 @@ export class ClickPlaceMode {
     }
 
     this._updateStatusCoords(point);
+    this._updateLengthOverlay([...this.points, point]);
   }
 
   _onMouseDown(e) {
@@ -131,6 +134,7 @@ export class ClickPlaceMode {
       point = this.sceneManager.snapToGrid(point, this.gridSize);
       this.sceneManager.constrainToPlane(point);
     }
+    this.sceneManager.clampToGrid(point);
 
     this.points.push(point);
     this._addPointMarker(point);
@@ -141,6 +145,7 @@ export class ClickPlaceMode {
     }
 
     this._updateStatusText();
+    this._updateLengthOverlay(this.points);
   }
 
   _onMouseUp(e) {
@@ -179,6 +184,9 @@ export class ClickPlaceMode {
       newVal = Math.round(newVal / this.gridSize) * this.gridSize;
     }
 
+    const half = this.sceneManager.gridSizeM / 2;
+    newVal = Math.max(-half, Math.min(half, newVal));
+
     switch (plane) {
       case 'XZ': point.y = newVal; break;
       case 'XY': point.z = newVal; break;
@@ -199,6 +207,7 @@ export class ClickPlaceMode {
     if (statusEl) {
       statusEl.textContent = `Height ${axisName}: ${(newVal * 1000).toFixed(0)}mm | Length: ${(length * 1000).toFixed(0)}mm — Release to confirm`;
     }
+    this._updateLengthOverlay(this.points);
   }
 
   _endShiftDrag() {
@@ -262,6 +271,7 @@ export class ClickPlaceMode {
     this._clearHeightLine();
     this.points = [];
     this.cursorMarker.visible = false;
+    this._hideLengthOverlay();
     if (this.onComplete) {
       this.onComplete(pts);
     }
@@ -277,6 +287,7 @@ export class ClickPlaceMode {
   _cancel() {
     this._clearVisuals();
     this._clearHeightLine();
+    this._hideLengthOverlay();
     this.points = [];
     this.sceneManager.resetPlaneAnchor();
     const statusEl = document.getElementById('status-text');
@@ -362,6 +373,26 @@ export class ClickPlaceMode {
     } else {
       const length = this._getCurveLength(this.points);
       statusEl.textContent = `${this.points.length} pts | ${(length * 1000).toFixed(0)}mm — Dbl-click/Enter finish | F1/F2/F3 plane | Shift+drag height | Esc cancel`;
+    }
+  }
+
+  _updateLengthOverlay(points) {
+    const overlay = document.getElementById('length-overlay');
+    if (!overlay) return;
+    if (points.length < 2) {
+      overlay.classList.remove('visible');
+      return;
+    }
+    const length = this._getCurveLength(points);
+    overlay.textContent = `${(length * 1000).toFixed(0)} mm`;
+    overlay.classList.add('visible');
+  }
+
+  _hideLengthOverlay() {
+    const overlay = document.getElementById('length-overlay');
+    if (overlay) {
+      overlay.classList.remove('visible');
+      overlay.textContent = '';
     }
   }
 

@@ -32,7 +32,7 @@ class App {
     const statusEl = document.getElementById('status-text');
     if (statusEl) statusEl.textContent = 'Ready — Press 2 or select Click Place tool to start drawing';
 
-    console.log('NeonFlex 3D Tube Designer initialized');
+    console.log('MAGICTOOLBOX NEONFLEXER initialized');
   }
 
   _setupKeyboardShortcuts() {

@@ -31,6 +31,12 @@ export class SceneManager {
     this.controls.minDistance = 0.1;
     this.controls.maxDistance = 50;
     this.controls.target.set(0, 0, 0);
+    // Middle mouse = orbit, right = pan (left freed for drawing tools)
+    this.controls.mouseButtons = {
+      LEFT: THREE.MOUSE.ROTATE,
+      MIDDLE: THREE.MOUSE.ROTATE,
+      RIGHT: THREE.MOUSE.PAN,
+    };
 
     // Environment for PBR transmission
     const pmremGenerator = new THREE.PMREMGenerator(this.renderer);
@@ -52,6 +58,9 @@ export class SceneManager {
 
     // Grid
     this._createGrid();
+
+    // Ground logo (visible in top-down view)
+    this._createGroundLogo();
 
     // Single movable drawing plane for raycasting (invisible, 50m x 50m)
     this._drawPlane = new THREE.Mesh(
@@ -91,46 +100,179 @@ export class SceneManager {
   }
 
   _createGrid() {
-    const mainGrid = new THREE.GridHelper(2, 20, 0x2a2a4e, 0x222244);
-    mainGrid.name = '__grid_main';
-    this.scene.add(mainGrid);
+    // Grid container group (so we can remove & rebuild)
+    this._gridGroup = new THREE.Group();
+    this._gridGroup.name = '__grid_group';
+    this.scene.add(this._gridGroup);
 
-    const subGrid = new THREE.GridHelper(2, 200, 0x1a1a3e, 0x1a1a3e);
+    // Default: 2m grid
+    this.gridSizeM = 2;
+    this._buildGrid(this.gridSizeM);
+  }
+
+  _createGroundLogo() {
+    const loader = new THREE.TextureLoader();
+    loader.load('byfeignasse_logo_1.png', (texture) => {
+      texture.colorSpace = THREE.SRGBColorSpace;
+      const aspect = texture.image.width / texture.image.height;
+      const logoSize = this.gridSizeM * 0.8;
+      const geo = new THREE.PlaneGeometry(logoSize * aspect, logoSize);
+      const mat = new THREE.MeshBasicMaterial({
+        map: texture,
+        transparent: true,
+        opacity: 0.08,
+        depthWrite: false,
+        side: THREE.FrontSide,
+      });
+      this._groundLogo = new THREE.Mesh(geo, mat);
+      this._groundLogo.rotation.x = -Math.PI / 2;
+      this._groundLogo.position.y = 0.001;
+      this._groundLogo.name = '__ground_logo';
+      this._groundLogo.renderOrder = -1;
+      this._groundLogoAspect = aspect;
+      this.scene.add(this._groundLogo);
+    });
+  }
+
+  _resizeGroundLogo(sizeM) {
+    if (!this._groundLogo) return;
+    const logoSize = sizeM * 0.8;
+    const aspect = this._groundLogoAspect || 1;
+    this._groundLogo.geometry.dispose();
+    this._groundLogo.geometry = new THREE.PlaneGeometry(logoSize * aspect, logoSize);
+  }
+
+  _buildGrid(sizeM) {
+    // Clear old grid objects
+    this._gridGroup.traverse(child => {
+      if (child.isMesh || child.isLine || child.isLineSegments) {
+        child.geometry?.dispose();
+        child.material?.dispose();
+      }
+      if (child.isSprite) {
+        child.material?.map?.dispose();
+        child.material?.dispose();
+      }
+    });
+    this._gridGroup.clear();
+
+    // Main grid: 1m divisions
+    const mainDivisions = sizeM;
+    const mainGrid = new THREE.GridHelper(sizeM, mainDivisions, 0x3a3a5e, 0x2a2a4e);
+    mainGrid.name = '__grid_main';
+    this._gridGroup.add(mainGrid);
+
+    // Sub-grid: 100mm divisions
+    const subDivisions = sizeM * 10;
+    const subGrid = new THREE.GridHelper(sizeM, subDivisions, 0x1e1e3e, 0x1a1a3a);
     subGrid.name = '__grid_sub';
     subGrid.position.y = -0.0001;
-    this.scene.add(subGrid);
+    this._gridGroup.add(subGrid);
 
-    // Axis indicators
-    const axisLen = 0.3;
-    const xAxis = new THREE.Line(
-      new THREE.BufferGeometry().setFromPoints([
-        new THREE.Vector3(0, 0.001, 0),
-        new THREE.Vector3(axisLen, 0.001, 0)
-      ]),
-      new THREE.LineBasicMaterial({ color: 0xff4444 })
-    );
-    xAxis.name = '__axis_x';
-    this.scene.add(xAxis);
+    // Axis arrows (full grid length, thick cylinder + cone tip)
+    const axisLen = sizeM / 2;
+    const axisRadius = sizeM * 0.003;    // shaft thickness scales with grid
+    const arrowLen = sizeM * 0.03;       // arrow cone length
+    const arrowRadius = sizeM * 0.008;   // arrow cone radius
 
-    const yAxis = new THREE.Line(
-      new THREE.BufferGeometry().setFromPoints([
-        new THREE.Vector3(0, 0.001, 0),
-        new THREE.Vector3(0, axisLen, 0)
-      ]),
-      new THREE.LineBasicMaterial({ color: 0x44ff44 })
-    );
-    yAxis.name = '__axis_y';
-    this.scene.add(yAxis);
+    this._addAxisArrow(axisLen, arrowLen, axisRadius, arrowRadius, 0xff4444,
+      new THREE.Vector3(1, 0, 0), new THREE.Euler(0, 0, -Math.PI / 2)); // X
+    this._addAxisArrow(axisLen, arrowLen, axisRadius, arrowRadius, 0x44ff44,
+      new THREE.Vector3(0, 1, 0), new THREE.Euler(0, 0, 0)); // Y
+    this._addAxisArrow(axisLen, arrowLen, axisRadius, arrowRadius, 0x4444ff,
+      new THREE.Vector3(0, 0, 1), new THREE.Euler(Math.PI / 2, 0, 0)); // Z
 
-    const zAxis = new THREE.Line(
-      new THREE.BufferGeometry().setFromPoints([
-        new THREE.Vector3(0, 0.001, 0),
-        new THREE.Vector3(0, 0.001, axisLen)
-      ]),
-      new THREE.LineBasicMaterial({ color: 0x4444ff })
-    );
-    zAxis.name = '__axis_z';
-    this.scene.add(zAxis);
+    // Axis labels at the end of each axis (bigger)
+    const labelOffset = axisLen + sizeM * 0.04;
+    this._addAxisLabel('X', labelOffset, 0.05, 0, 0xff4444, sizeM * 0.06);
+    this._addAxisLabel('Y', 0.05, labelOffset, 0, 0x44ff44, sizeM * 0.06);
+    this._addAxisLabel('Z', 0, 0.05, labelOffset, 0x4444ff, sizeM * 0.06);
+
+    // Edge dimension labels (every meter along X, Y and Z)
+    for (let i = 1; i <= Math.floor(sizeM / 2); i++) {
+      this._addAxisLabel(`${i}m`, i, 0.01, -0.03, 0x556677);
+      this._addAxisLabel(`${i}m`, -0.05, 0.01, i, 0x556677);
+      this._addAxisLabel(`${i}m`, -0.05, i, 0, 0x556677);
+    }
+  }
+
+  /**
+   * Add a thick axis shaft (cylinder) + arrow cone at the tip.
+   * @param {number} length - shaft length
+   * @param {number} arrowLen - cone length
+   * @param {number} shaftR - shaft radius
+   * @param {number} arrowR - cone radius
+   * @param {number} color - hex color
+   * @param {THREE.Vector3} dir - axis direction (unit vector)
+   * @param {THREE.Euler} rotation - rotation to point cylinder along axis
+   */
+  _addAxisArrow(length, arrowLen, shaftR, arrowR, color, dir, rotation) {
+    const mat = new THREE.MeshBasicMaterial({ color });
+
+    // Shaft (cylinder centered on Y, so we rotate it)
+    const shaftGeo = new THREE.CylinderGeometry(shaftR, shaftR, length, 8);
+    const shaft = new THREE.Mesh(shaftGeo, mat);
+    // Position shaft center along axis direction
+    shaft.position.copy(dir.clone().multiplyScalar(length / 2));
+    shaft.rotation.copy(rotation);
+    shaft.name = '__axis_shaft';
+    this._gridGroup.add(shaft);
+
+    // Arrow cone at the tip
+    const coneGeo = new THREE.ConeGeometry(arrowR, arrowLen, 12);
+    const cone = new THREE.Mesh(coneGeo, mat);
+    cone.position.copy(dir.clone().multiplyScalar(length + arrowLen / 2));
+    cone.rotation.copy(rotation);
+    cone.name = '__axis_arrow';
+    this._gridGroup.add(cone);
+  }
+
+  _addAxisLabel(text, x, y, z, color, spriteSize) {
+    const canvas = document.createElement('canvas');
+    const size = 128;
+    canvas.width = size;
+    canvas.height = size;
+    const ctx = canvas.getContext('2d');
+    ctx.fillStyle = '#' + color.toString(16).padStart(6, '0');
+    ctx.font = 'bold 64px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(text, size / 2, size / 2);
+
+    const texture = new THREE.CanvasTexture(canvas);
+    const spriteMat = new THREE.SpriteMaterial({ map: texture, transparent: true, depthTest: false });
+    const sprite = new THREE.Sprite(spriteMat);
+    sprite.position.set(x, y, z);
+    const s = spriteSize || 0.08;
+    sprite.scale.set(s, s, 1);
+    sprite.name = '__label';
+    this._gridGroup.add(sprite);
+  }
+
+  /**
+   * Set grid workspace size in meters. Rebuilds the grid.
+   * @param {number} sizeM - total size (e.g., 2, 5, 10, 20)
+   */
+  setGridSize(sizeM) {
+    this.gridSizeM = sizeM;
+    this._buildGrid(sizeM);
+    // Also resize the draw plane
+    this._drawPlane.geometry.dispose();
+    this._drawPlane.geometry = new THREE.PlaneGeometry(sizeM * 2, sizeM * 2);
+    // Resize plane helper
+    this._planeHelper.geometry.dispose();
+    this._planeHelper.geometry = new THREE.PlaneGeometry(sizeM, sizeM);
+    // Rebuild plane grid at new size
+    this.scene.remove(this._planeGrid);
+    this._planeGrid.geometry.dispose();
+    this._planeGrid.material.dispose();
+    this._planeGrid = new THREE.GridHelper(sizeM, sizeM * 10, 0x2a4a6e, 0x22384e);
+    this._planeGrid.name = '__plane_grid';
+    this._planeGrid.visible = false;
+    this.scene.add(this._planeGrid);
+    // Resize ground logo
+    this._resizeGroundLogo(sizeM);
+    this._applyPlaneOrientation();
   }
 
   _createPlaneHelper() {
@@ -274,6 +416,18 @@ export class SceneManager {
       Math.round(point.y / gridSize) * gridSize,
       Math.round(point.z / gridSize) * gridSize
     );
+  }
+
+  /**
+   * Clamp a point so it stays within the grid boundaries.
+   * Grid extends from -gridSizeM/2 to +gridSizeM/2 on each axis.
+   */
+  clampToGrid(point) {
+    const half = this.gridSizeM / 2;
+    point.x = Math.max(-half, Math.min(half, point.x));
+    point.y = Math.max(-half, Math.min(half, point.y));
+    point.z = Math.max(-half, Math.min(half, point.z));
+    return point;
   }
 
   /**

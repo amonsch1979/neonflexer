@@ -191,6 +191,30 @@ body {
   height: 100%;
 }
 
+
+/* Big length overlay while drawing */
+#length-overlay {
+  position: absolute;
+  top: 20px;
+  left: 50%;
+  transform: translateX(-50%);
+  font-family: var(--font-mono);
+  font-size: 48px;
+  font-weight: 700;
+  color: #ff2244;
+  text-shadow: 0 0 20px rgba(255, 34, 68, 0.5), 0 2px 4px rgba(0,0,0,0.8);
+  pointer-events: none;
+  user-select: none;
+  z-index: 10;
+  opacity: 0;
+  transition: opacity 0.15s;
+  letter-spacing: 2px;
+}
+
+#length-overlay.visible {
+  opacity: 1;
+}
+
 /* Status Bar */
 #status-bar {
   display: flex;

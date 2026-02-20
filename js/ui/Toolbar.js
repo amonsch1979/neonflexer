@@ -12,6 +12,7 @@ export class Toolbar {
     this.onPlaneChange = null;    // (plane) => {}
     this.onExport = null;         // () => {}
     this.onDeleteTube = null;     // () => {}
+    this.onGridSizeChange = null; // (sizeM) => {}
 
     this._build();
   }
@@ -50,6 +51,83 @@ export class Toolbar {
     this._setPlaneActive('XZ');
     this.container.appendChild(planeGroup);
 
+    // Grid size group
+    const gridGroup = this._createGroup();
+    const gridLabel = document.createElement('span');
+    gridLabel.className = 'toolbar-label';
+    gridLabel.textContent = 'Grid:';
+    gridGroup.appendChild(gridLabel);
+    const gridSelect = document.createElement('select');
+    gridSelect.className = 'prop-input';
+    gridSelect.style.width = '80px';
+    gridSelect.style.height = '26px';
+    gridSelect.style.fontSize = '11px';
+    const gridSizes = [
+      { value: '2', label: '2x2m' },
+      { value: '5', label: '5x5m' },
+      { value: '10', label: '10x10m' },
+      { value: '20', label: '20x20m' },
+      { value: '50', label: '50x50m' },
+      { value: 'custom', label: 'Custom...' },
+    ];
+    for (const gs of gridSizes) {
+      const opt = document.createElement('option');
+      opt.value = gs.value;
+      opt.textContent = gs.label;
+      gridSelect.appendChild(opt);
+    }
+    gridSelect.value = '2';
+
+    // Custom input (hidden by default)
+    const customInput = document.createElement('input');
+    customInput.type = 'number';
+    customInput.className = 'prop-input';
+    customInput.style.width = '50px';
+    customInput.style.height = '26px';
+    customInput.style.fontSize = '11px';
+    customInput.style.display = 'none';
+    customInput.min = '1';
+    customInput.max = '200';
+    customInput.placeholder = 'm';
+
+    const customUnit = document.createElement('span');
+    customUnit.className = 'toolbar-label';
+    customUnit.style.display = 'none';
+    customUnit.textContent = 'm';
+
+    const applyCustom = () => {
+      const val = parseFloat(customInput.value);
+      if (val >= 1 && val <= 200) {
+        if (this.onGridSizeChange) this.onGridSizeChange(val);
+      }
+    };
+
+    gridSelect.addEventListener('change', () => {
+      if (gridSelect.value === 'custom') {
+        customInput.style.display = '';
+        customUnit.style.display = '';
+        customInput.value = '';
+        customInput.focus();
+      } else {
+        customInput.style.display = 'none';
+        customUnit.style.display = 'none';
+        if (this.onGridSizeChange) this.onGridSizeChange(parseInt(gridSelect.value));
+      }
+    });
+
+    customInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        applyCustom();
+        customInput.blur();
+      }
+    });
+    customInput.addEventListener('change', applyCustom);
+
+    gridGroup.appendChild(gridSelect);
+    gridGroup.appendChild(customInput);
+    gridGroup.appendChild(customUnit);
+    this.container.appendChild(gridGroup);
+
     // Spacer
     const spacer = document.createElement('div');
     spacer.style.flex = '1';
@@ -57,15 +135,36 @@ export class Toolbar {
 
     // Export group
     const exportGroup = this._createGroup();
-    this.exportBtn = this._addButton(exportGroup, 'export', 'Export GLB (Ctrl+E)', this._exportIcon());
+    this.exportBtn = this._addButton(exportGroup, 'export', 'Export MVR (Ctrl+E)', this._exportIcon());
     this.exportBtn.classList.remove('active');
     this.container.appendChild(exportGroup);
 
-    // Label
+    // Logo + App name
+    const branding = document.createElement('div');
+    branding.style.display = 'flex';
+    branding.style.alignItems = 'center';
+    branding.style.gap = '6px';
+    branding.style.marginLeft = '8px';
+
+    const logo = document.createElement('img');
+    logo.src = 'byfeignasse_logo_1.png';
+    logo.alt = 'BYFEIGNASSE';
+    logo.style.height = '28px';
+    logo.style.width = '28px';
+    logo.style.objectFit = 'contain';
+    logo.style.borderRadius = '50%';
+    logo.style.filter = 'invert(1)';
+    branding.appendChild(logo);
+
     const label = document.createElement('span');
     label.className = 'toolbar-label';
-    label.textContent = 'NeonFlex Designer';
-    this.container.appendChild(label);
+    label.style.fontSize = '12px';
+    label.style.letterSpacing = '1px';
+    label.style.fontWeight = '600';
+    label.textContent = 'MAGICTOOLBOX NEONFLEXER';
+    branding.appendChild(label);
+
+    this.container.appendChild(branding);
 
     // Set initial active
     this._setActive('select');

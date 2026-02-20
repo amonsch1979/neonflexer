@@ -2,6 +2,7 @@ import { Toolbar } from './Toolbar.js';
 import { PropertiesPanel } from './PropertiesPanel.js';
 import { TubeListPanel } from './TubeListPanel.js';
 import { GLBExporter } from '../export/GLBExporter.js';
+import { MVRExporter } from '../export/MVRExporter.js';
 
 /**
  * Coordinates all UI panels and connects them to the app logic.
@@ -17,6 +18,10 @@ export class UIManager {
     this.toolbar.onPlaneChange = (plane) => this._onPlaneChange(plane);
     this.toolbar.onExport = () => this._onExport();
     this.toolbar.onDeleteTube = () => this._onDeleteSelected();
+    this.toolbar.onGridSizeChange = (size) => this._onGridSizeChange(size);
+
+    // Length overlay element
+    this.lengthOverlay = document.getElementById('length-overlay');
 
     // Properties panel
     this.propertiesPanel = new PropertiesPanel(document.getElementById('properties-panel'));
@@ -75,13 +80,34 @@ export class UIManager {
       return;
     }
     try {
-      if (statusEl) statusEl.textContent = 'Exporting GLB...';
-      await GLBExporter.export(this.app.tubeManager);
-      if (statusEl) statusEl.textContent = 'GLB exported successfully!';
+      if (statusEl) statusEl.textContent = 'Exporting MVR...';
+      await MVRExporter.export(this.app.tubeManager);
+      if (statusEl) statusEl.textContent = 'MVR exported successfully! (Model + GDTF Pixels)';
     } catch (err) {
       console.error('Export error:', err);
       if (statusEl) statusEl.textContent = `Export failed: ${err.message}`;
     }
+  }
+
+  _onGridSizeChange(sizeM) {
+    this.app.sceneManager.setGridSize(sizeM);
+    const statusEl = document.getElementById('status-text');
+    if (statusEl) statusEl.textContent = `Grid: ${sizeM}x${sizeM}m`;
+  }
+
+  /** Show the big red length overlay in the viewport */
+  showLengthOverlay(lengthMeters) {
+    if (!this.lengthOverlay) return;
+    const mm = (lengthMeters * 1000).toFixed(0);
+    this.lengthOverlay.textContent = `${mm} mm`;
+    this.lengthOverlay.classList.add('visible');
+  }
+
+  /** Hide the length overlay */
+  hideLengthOverlay() {
+    if (!this.lengthOverlay) return;
+    this.lengthOverlay.classList.remove('visible');
+    this.lengthOverlay.textContent = '';
   }
 
   _onDeleteSelected() {

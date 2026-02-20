@@ -36,7 +36,6 @@ export class FreehandMode {
     canvas.addEventListener('mouseup', this._onMouseUp);
     document.addEventListener('keydown', this._onKeyDown);
     canvas.style.cursor = 'crosshair';
-    this.sceneManager.controls.enabled = false;
   }
 
   deactivate() {
@@ -44,13 +43,13 @@ export class FreehandMode {
     this.drawing = false;
     this.rawPoints = [];
     this._clearPreview();
+    this._hideLengthOverlay();
     const canvas = this.sceneManager.canvas;
     canvas.removeEventListener('mousedown', this._onMouseDown);
     canvas.removeEventListener('mousemove', this._onMouseMove);
     canvas.removeEventListener('mouseup', this._onMouseUp);
     document.removeEventListener('keydown', this._onKeyDown);
     canvas.style.cursor = '';
-    this.sceneManager.controls.enabled = true;
   }
 
   _onMouseDown(e) {
@@ -89,12 +88,14 @@ export class FreehandMode {
     if (statusEl && this.rawPoints.length >= 2) {
       const length = this._getRawLength();
       statusEl.textContent = `Drawing... | Length: ${(length * 1000).toFixed(0)}mm — Release to finish`;
+      this._showLengthOverlay(length);
     }
   }
 
   _onMouseUp(e) {
     if (!this.active || !this.drawing) return;
     this.drawing = false;
+    this._hideLengthOverlay();
 
     if (this.rawPoints.length < 3) {
       this._clearPreview();
@@ -112,6 +113,7 @@ export class FreehandMode {
       finalPoints = simplified.map(p => {
         const snapped = this.sceneManager.snapToGrid(p, this.gridSize);
         this.sceneManager.constrainToPlane(snapped);
+        this.sceneManager.clampToGrid(snapped);
         return snapped;
       });
     }
@@ -135,6 +137,7 @@ export class FreehandMode {
       this.drawing = false;
       this.rawPoints = [];
       this._clearPreview();
+      this._hideLengthOverlay();
     }
   }
 
@@ -142,6 +145,7 @@ export class FreehandMode {
     const point = this.sceneManager.raycastDrawingPlane(e.clientX, e.clientY);
     if (!point) return null;
     this.sceneManager.constrainToPlane(point);
+    this.sceneManager.clampToGrid(point);
     return point;
   }
 
@@ -161,6 +165,21 @@ export class FreehandMode {
     this.previewLine = new THREE.Line(geo, mat);
     this.previewLine.name = '__freehand_preview';
     this.sceneManager.scene.add(this.previewLine);
+  }
+
+  _showLengthOverlay(lengthMeters) {
+    const overlay = document.getElementById('length-overlay');
+    if (!overlay) return;
+    overlay.textContent = `${(lengthMeters * 1000).toFixed(0)} mm`;
+    overlay.classList.add('visible');
+  }
+
+  _hideLengthOverlay() {
+    const overlay = document.getElementById('length-overlay');
+    if (overlay) {
+      overlay.classList.remove('visible');
+      overlay.textContent = '';
+    }
   }
 
   _clearPreview() {

@@ -1,3 +1,4 @@
+import * as THREE from 'three';
 import { ClickPlaceMode } from './ClickPlaceMode.js';
 import { FreehandMode } from './FreehandMode.js';
 import { PointEditor } from './PointEditor.js';
@@ -31,14 +32,21 @@ export class DrawingManager {
     this._deactivateAll();
     this.currentMode = mode;
 
+    const controls = this.sceneManager.controls;
     switch (mode) {
       case 'select':
+        // Restore left-click orbit in select mode
+        controls.mouseButtons.LEFT = THREE.MOUSE.ROTATE;
         this.pointEditor.activate(this.tubeManager);
         break;
       case 'click-place':
+        // Disable left-click orbit — left is for placing points, middle for orbit
+        controls.mouseButtons.LEFT = null;
         this.clickPlaceMode.activate();
         break;
       case 'freehand':
+        // Disable left-click orbit — left is for drawing, middle for orbit
+        controls.mouseButtons.LEFT = null;
         this.freehandMode.activate();
         break;
     }

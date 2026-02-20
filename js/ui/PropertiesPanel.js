@@ -203,6 +203,79 @@ export class PropertiesPanel {
 
     this.container.appendChild(pxGroup);
 
+    // DMX / Patch
+    const dmxGroup = this._group('DMX Patch');
+    const chPerPx = tube.dmxChannelsPerPixel;
+    const maxStartAddr = 512 - chPerPx + 1; // 510 for RGB, 509 for RGBW
+
+    this._row(dmxGroup, 'Fixture ID', this._numberInput(tube.fixtureId, 1, 99999, 1, '', (val) => {
+      tube.fixtureId = Math.round(val);
+      this._emit('fixtureId');
+    }));
+    this._row(dmxGroup, 'Universe', this._numberInput(tube.dmxUniverse, 1, 999, 1, '', (val) => {
+      tube.dmxUniverse = Math.round(val);
+      this._emit('dmxUniverse');
+      this._build();
+    }));
+    this._row(dmxGroup, 'Address', this._numberInput(tube.dmxAddress, 1, maxStartAddr, 1, `/ ${maxStartAddr}`, (val) => {
+      tube.dmxAddress = Math.min(Math.round(val), maxStartAddr);
+      this._emit('dmxAddress');
+      this._build();
+    }));
+    this._row(dmxGroup, 'Ch/Pixel', this._select(
+      [
+        { value: '3', label: 'RGB (3ch)' },
+        { value: '4', label: 'RGBW (4ch)' },
+      ],
+      String(tube.dmxChannelsPerPixel),
+      (val) => {
+        tube.dmxChannelsPerPixel = parseInt(val);
+        // Clamp address to new max
+        const newMax = 512 - tube.dmxChannelsPerPixel + 1;
+        if (tube.dmxAddress > newMax) tube.dmxAddress = newMax;
+        this._emit('dmxChannelsPerPixel');
+        this._build();
+      }
+    ));
+
+    // Show computed patch summary using same absolute math as MVR exporter
+    if (tube.isValid) {
+      const curve = CurveBuilder.build(tube.controlPoints, tube.tension, tube.closed);
+      if (curve) {
+        const length = CurveBuilder.getLength(curve);
+        const pixelCount = Math.max(1, Math.round(length * tube.pixelsPerMeter));
+        const ch = Number(tube.dmxChannelsPerPixel) || 3;
+        const startUni = Number(tube.dmxUniverse) || 1;
+        const startAddr = Number(tube.dmxAddress) || 1;
+
+        let absCh = (startUni - 1) * 512 + (startAddr - 1);
+        let lastUni = startUni, lastAddr = startAddr;
+        for (let i = 0; i < pixelCount; i++) {
+          const aiu = (absCh % 512) + 1;
+          if (aiu + ch - 1 > 512) {
+            absCh = (Math.floor(absCh / 512) + 1) * 512;
+          }
+          lastUni = Math.floor(absCh / 512) + 1;
+          lastAddr = (absCh % 512) + 1;
+          absCh += ch;
+        }
+        const lastEnd = lastAddr + ch - 1;
+        const totalCh = pixelCount * ch;
+        const universeCount = lastUni - startUni + 1;
+
+        const summary = document.createElement('div');
+        summary.className = 'prop-row';
+        summary.style.flexWrap = 'wrap';
+        const rangeText = universeCount > 1
+          ? `${pixelCount}px → U${startUni}.${startAddr} – U${lastUni}.${lastEnd} (${totalCh}ch, ${universeCount} uni)`
+          : `${pixelCount}px → U${startUni}.${startAddr} – .${lastEnd} (${totalCh}ch)`;
+        summary.innerHTML = `<span class="prop-label">Range</span><span style="font-size:11px;font-family:var(--font-mono);color:var(--accent-dim)">${rangeText}</span>`;
+        dmxGroup.appendChild(summary);
+      }
+    }
+
+    this.container.appendChild(dmxGroup);
+
     // Curve
     const curveGroup = this._group('Curve');
     this._row(curveGroup, 'Tension', this._numberInput(tube.tension, 0, 1, 0.05, '', (val) => {
