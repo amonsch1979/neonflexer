@@ -28,7 +28,13 @@ export class TubeGeometryBuilder {
    * Build round tube using TubeGeometry.
    */
   static _buildRound(curve, tubeModel) {
-    const segments = CurveBuilder.getTubularSegments(curve);
+    // For uv-mapped mode: at least as many segments as pixels, but never less than
+    // the normal smooth count so sharp bends don't break the geometry
+    const normalSegments = CurveBuilder.getTubularSegments(curve);
+    const pixelCount = Math.max(1, Math.round(CurveBuilder.getLength(curve) * tubeModel.pixelsPerMeter));
+    const segments = tubeModel.pixelMode === 'uv-mapped'
+      ? Math.max(normalSegments, pixelCount)
+      : normalSegments;
     const radialSegments = 24;
     const radius = tubeModel.outerRadius;
 
@@ -40,8 +46,8 @@ export class TubeGeometryBuilder {
       tubeModel.closed
     );
 
-    // Add end caps if not closed
-    if (!tubeModel.closed) {
+    // Add end caps if not closed (skip for uv-mapped — caps corrupt UV mapping)
+    if (!tubeModel.closed && tubeModel.pixelMode !== 'uv-mapped') {
       const merged = this._buildRoundWithCaps(tubeGeo, curve, radius, radialSegments);
       if (merged) {
         tubeGeo.dispose();
@@ -99,7 +105,12 @@ export class TubeGeometryBuilder {
    * Extrude a shape along a curve path.
    */
   static _extrudeAlongCurve(shape, curve, tubeModel) {
-    const steps = CurveBuilder.getExtrudeSteps(curve);
+    // For uv-mapped mode: at least as many steps as pixels, keep smooth rendering
+    const normalSteps = CurveBuilder.getExtrudeSteps(curve);
+    const pixelCount = Math.max(1, Math.round(CurveBuilder.getLength(curve) * tubeModel.pixelsPerMeter));
+    const steps = tubeModel.pixelMode === 'uv-mapped'
+      ? Math.max(normalSteps, pixelCount)
+      : normalSteps;
     const geometry = new THREE.ExtrudeGeometry(shape, {
       steps: steps,
       bevelEnabled: false,

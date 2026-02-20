@@ -172,10 +172,14 @@ export class TubeManager {
     group.add(bodyMesh);
     tube.bodyMesh = bodyMesh;
 
-    // Pixel group
-    const pixelGroup = PixelDistributor.distribute(curve, tube);
-    group.add(pixelGroup);
-    tube.pixelGroup = pixelGroup;
+    // Pixel group (skip for uv-mapped mode — no viewport spheres)
+    if (tube.pixelMode === 'uv-mapped') {
+      tube.pixelGroup = null;
+    } else {
+      const pixelGroup = PixelDistributor.distribute(curve, tube);
+      group.add(pixelGroup);
+      tube.pixelGroup = pixelGroup;
+    }
 
     // Control point helpers (small spheres, not exported)
     this._createControlPointHelpers(tube, group);

@@ -145,6 +145,23 @@ export class PropertiesPanel {
 
     // Pixels
     const pxGroup = this._group('Pixels');
+
+    // Pixel mode selector
+    this._row(pxGroup, 'Mode', this._select(
+      [
+        { value: 'discrete', label: 'Discrete Pixels' },
+        { value: 'uv-mapped', label: 'UV Mapped' },
+      ],
+      tube.pixelMode || 'discrete',
+      (val) => {
+        tube.pixelMode = val;
+        this._emit('pixelMode');
+        this._build();
+      }
+    ));
+
+    const isUVMapped = tube.pixelMode === 'uv-mapped';
+
     const pitchOptions = Object.entries(PIXEL_PITCH_PRESETS).map(([key, p]) => ({
       value: String(p.pixelsPerMeter),
       label: p.label,
@@ -170,36 +187,78 @@ export class PropertiesPanel {
       this._row(pxGroup, 'px/m', this._numberInput(tube.pixelsPerMeter, 1, 500, 1, '', (val) => {
         tube.pixelsPerMeter = Math.round(val);
         this._emit('pixelsPerMeter');
+        this._build();
       }));
     }
 
-    this._row(pxGroup, 'Color', this._colorInput(tube.pixelColor, (val) => {
-      tube.pixelColor = val;
-      this._emit('pixelColor');
-    }));
+    // Pixel count — computed from length × px/m, editable to reverse-calculate px/m
+    if (tube.isValid) {
+      const curve = CurveBuilder.build(tube.controlPoints, tube.tension, tube.closed);
+      if (curve) {
+        const tubeLength = CurveBuilder.getLength(curve);
+        const pixelCount = Math.max(1, Math.round(tubeLength * tube.pixelsPerMeter));
+        this._row(pxGroup, 'Count', this._numberInput(pixelCount, 1, 9999, 1, 'px', (val) => {
+          const count = Math.max(1, Math.round(val));
+          tube.pixelsPerMeter = Math.max(1, Math.round(count / tubeLength));
+          this._emit('pixelsPerMeter');
+          this._build();
+        }));
 
-    // Emissive toggle
-    const emissiveRow = document.createElement('div');
-    emissiveRow.className = 'toggle-row';
-    const emissiveLabel = document.createElement('span');
-    emissiveLabel.className = 'prop-label';
-    emissiveLabel.textContent = 'Emissive';
-    emissiveRow.appendChild(emissiveLabel);
-    const emToggle = document.createElement('label');
-    emToggle.className = 'toggle-switch';
-    const emCheckbox = document.createElement('input');
-    emCheckbox.type = 'checkbox';
-    emCheckbox.checked = tube.pixelEmissive;
-    emCheckbox.addEventListener('change', () => {
-      tube.pixelEmissive = emCheckbox.checked;
-      this._emit('pixelEmissive');
-    });
-    const emSlider = document.createElement('span');
-    emSlider.className = 'toggle-slider';
-    emToggle.appendChild(emCheckbox);
-    emToggle.appendChild(emSlider);
-    emissiveRow.appendChild(emToggle);
-    pxGroup.appendChild(emissiveRow);
+        // UV-mapped: show part split info for Capture's 512-channel limit
+        if (isUVMapped) {
+          const chPerPx = Number(tube.dmxChannelsPerPixel) || 3;
+          const maxPxPerPart = Math.floor(512 / chPerPx);
+          const numParts = Math.ceil(pixelCount / maxPxPerPart);
+          let partsText;
+          if (numParts <= 1) {
+            partsText = `1 part (${pixelCount}px)`;
+          } else {
+            const parts = [];
+            for (let p = 0; p < numParts; p++) {
+              const start = p * maxPxPerPart;
+              const end = Math.min(start + maxPxPerPart, pixelCount);
+              parts.push(`${end - start}px`);
+            }
+            partsText = `${numParts} parts (${parts.join(' + ')})`;
+          }
+          const partsRow = document.createElement('div');
+          partsRow.className = 'prop-row';
+          partsRow.innerHTML = `<span class="prop-label">Parts</span><span style="font-size:11px;font-family:var(--font-mono);color:var(--accent-dim)">${partsText}</span>`;
+          pxGroup.appendChild(partsRow);
+        }
+      }
+    }
+
+    // Color + Emissive only shown for discrete mode (viewport spheres)
+    if (!isUVMapped) {
+      this._row(pxGroup, 'Color', this._colorInput(tube.pixelColor, (val) => {
+        tube.pixelColor = val;
+        this._emit('pixelColor');
+      }));
+
+      // Emissive toggle
+      const emissiveRow = document.createElement('div');
+      emissiveRow.className = 'toggle-row';
+      const emissiveLabel = document.createElement('span');
+      emissiveLabel.className = 'prop-label';
+      emissiveLabel.textContent = 'Emissive';
+      emissiveRow.appendChild(emissiveLabel);
+      const emToggle = document.createElement('label');
+      emToggle.className = 'toggle-switch';
+      const emCheckbox = document.createElement('input');
+      emCheckbox.type = 'checkbox';
+      emCheckbox.checked = tube.pixelEmissive;
+      emCheckbox.addEventListener('change', () => {
+        tube.pixelEmissive = emCheckbox.checked;
+        this._emit('pixelEmissive');
+      });
+      const emSlider = document.createElement('span');
+      emSlider.className = 'toggle-slider';
+      emToggle.appendChild(emCheckbox);
+      emToggle.appendChild(emSlider);
+      emissiveRow.appendChild(emToggle);
+      pxGroup.appendChild(emissiveRow);
+    }
 
     this.container.appendChild(pxGroup);
 
