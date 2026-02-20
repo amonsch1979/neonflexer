@@ -10,17 +10,61 @@
 
 ## Features
 
-- **3D Tube Drawing** — Click-to-place or freehand draw on XZ, XY, or YZ planes
-- **Realistic Materials** — PBR silicone materials (Dark, Clear, Milky White, Frosted) with transmission
-- **Cross Sections** — Round, square, or rectangular tubes with preset sizes
-- **LED Pixel Placement** — Configurable pitch (30, 60, 96, 144 px/m or custom), editable pixel count
-- **Pixel Mode Toggle** — Discrete (individual GDTF fixtures) or UV Mapped (for Capture's pixel generator)
-- **UV Mapped Auto-Split** — Tubes exceeding 512 DMX channels are split into named parts (e.g. `Tube1_milky_PT1_170px`)
-- **DMX Patching** — Per-tube fixture ID, universe, address, RGB/RGBW with automatic universe wrapping
-- **MVR Export** — Full MVR 1.6 file with GDTF generic LED fixtures and GLB tube models
-- **Tube Editing** — Move whole tubes or individual control points, duplicate, delete
-- **Multi-Plane Drawing** — Switch planes mid-draw with auto-anchoring
-- **Help Overlay** — Press `?` to see all keyboard shortcuts
+### 3D Tube Drawing
+- Click-to-place or freehand draw on Ground (XZ), Front (XY), or Side (YZ) planes
+- Switch planes mid-draw with seamless auto-anchoring
+- Adjustable grid size (2m to 200m) with snap-to-grid toggle
+- Adjustable curve tension and closed loop option
+
+### Tube Configuration
+- **Cross Sections** — Round, square, or rectangular profiles
+- **Preset Sizes** — 10mm, 12mm, 16mm, 20mm, 25mm round / 6x12, 8x16 flat
+- **Materials** — PBR silicone presets: Dark, Clear, Milky White, Frosted (with transmission)
+- **Wall Thickness** — Adjustable per tube (affects inner pixel sizing)
+
+### LED Pixels & Pixel Modes
+Each tube has a **Pixel Mode** selector in the Properties panel:
+
+- **Discrete Pixels** (default) — Individual LED pixel spheres rendered in the viewport. Each pixel is exported as a separate GDTF fixture in MVR with its own DMX address. Best for small pixel counts or when you need individual fixture control in your visualizer.
+
+- **UV Mapped** — No pixel spheres in the viewport. The tube body is exported with clean 0→1 UV mapping along the tube path. In Capture, you apply a **pixel/texture generator** to the mesh and set the number of columns to match your pixel count. Much lighter on resources for high pixel counts.
+
+Both modes share these settings:
+- **Pitch presets** — 30, 60, 96, 144 px/m or custom value
+- **Pixel Count** — Editable field that shows the total number of pixels. Change it directly and the px/m is recalculated automatically from the tube length.
+- **DMX Patch** — Fixture ID, universe, start address, RGB (3ch) or RGBW (4ch) per pixel with live range summary
+
+### UV Mapped Auto-Split
+Capture's texture generator is limited to **512 DMX channels** per material (170 pixels for RGB, 128 for RGBW). When a UV-mapped tube exceeds this limit, NeonFlexer automatically splits the tube body into multiple parts in the exported GLB. Each part gets a **named material** so you can identify it in Capture:
+
+| Total Pixels | Parts in GLB |
+|-------------|-------------|
+| 150 RGB | `Tube1_milky_150px` (1 part) |
+| 340 RGB | `Tube1_milky_PT1_170px` + `Tube1_milky_PT2_170px` (2 parts) |
+| 195 RGB | `Tube1_milky_PT1_170px` + `Tube1_milky_PT2_25px` (2 parts) |
+
+The **Parts** info row in the Properties panel shows the breakdown before you export.
+
+### DMX Patching
+- Per-tube fixture ID, universe, and start address
+- Automatic universe wrapping at the 512-channel boundary
+- RGB (3ch) or RGBW (4ch) per pixel
+- Live patch range summary: `195px → U1.1 – U2.73 (585ch, 2 uni)`
+
+### Tube Editing
+- Select and move entire tubes in 3D with transform gizmo
+- Move individual control points
+- Duplicate tubes with `Ctrl+D`
+- Delete tubes or individual points
+- Toggle tube visibility
+
+### Save / Load
+- Save your full project as a `.neon` file (`Ctrl+S`)
+- Load projects back with all tube properties preserved (`Ctrl+O`)
+- Backward compatible — old .neon files load with default settings for new features
+
+### Help Overlay
+Press `?` to see all keyboard shortcuts and mouse controls at a glance
 
 ## Quick Start
 
@@ -68,31 +112,66 @@ Open in your browser: **[amonsch1979.github.io/neonflexer](https://amonsch1979.g
 
 ## MVR Export
 
-The exported `.mvr` file contains:
-- **GeneralSceneDescription.xml** — Scene with layers, grouped model + fixtures per tube
-- **GenericLED.gdtf** — Generic RGB/RGBW LED pixel fixture (discrete mode only)
-- **models/TubeModel.glb** — Tube body meshes with PBR materials
+Press `Ctrl+E` to export. The `.mvr` file (MVR 1.6 standard) is a ZIP archive containing:
+
+| File | Description |
+|------|-------------|
+| `GeneralSceneDescription.xml` | Scene structure — layers, groups, fixtures, model references |
+| `GenericLED.gdtf` | Embedded GDTF fixture for LED pixels (discrete mode only) |
+| `models/TubeModel.glb` | All tube body meshes with PBR materials in one GLB |
 
 ### Discrete Pixels Mode
-Each pixel is exported as a GDTF fixture with correct DMX addressing (absolute, auto-wrapping across universes). Import directly into Capture or any MVR-compatible software.
+Each pixel is exported as an individual **GDTF Fixture** element in the MVR XML with:
+- Correct 3D position (converted from Three.js Y-up to MVR Z-up, in millimeters)
+- Absolute DMX addressing with automatic universe wrapping at channel 512
+- RGB or RGBW mode matching your per-tube setting
+- Unique fixture ID and custom ID for grouping
+
+Import the `.mvr` directly into Capture, WYSIWYG, Depence, or any MVR-compatible visualizer. Each pixel appears as a controllable light fixture.
 
 ### UV Mapped Mode
-Tube bodies are exported as GLB meshes with clean 0→1 UV mapping along the tube path. No individual pixel fixtures are created — use Capture's pixel/texture generator to map DMX channels onto the UV. Tubes with more than 170 pixels (RGB) or 128 pixels (RGBW) are automatically split into separate named parts (e.g. `Tube1_milky_PT1_170px`, `Tube1_milky_PT2_25px`) to fit Capture's 512-channel texture generator limit.
+Tube bodies are exported as **GLB meshes with clean 0→1 UV coordinates** along the tube path:
+- **U axis** (0→1) = position along the tube from start to end
+- **V axis** (0→1) = position around the tube circumference
+- No end caps on the geometry (they would corrupt the UV range)
+- No GDTF fixture elements — the `.gdtf` file is omitted when all tubes are UV-mapped
+
+**In Capture:** Select the tube mesh, add a pixel/texture generator, and set the number of columns to your pixel count. Each column maps to one pixel via the UV coordinates.
+
+**Auto-split for long tubes:** Tubes exceeding 512 DMX channels (170px RGB / 128px RGBW) are automatically split into separate named meshes in the GLB (e.g. `Tube1_milky_PT1_170px`, `Tube1_milky_PT2_25px`). Apply a separate texture generator to each part in Capture.
+
+### Mixed Mode
+You can have some tubes in Discrete mode and others in UV Mapped mode in the same project. The MVR export handles both correctly — discrete tubes get fixture elements, UV-mapped tubes get clean mesh geometry only.
 
 ## Changelog
 
-### Beta v1.1.0
-- **Pixel Mode Toggle** — Per-tube Discrete Pixels / UV Mapped selector
-- **UV Mapped export** — Clean 0→1 UV mapping, no pixel fixtures, no end caps
-- **Auto-split** — UV-mapped tubes split into named material parts at 512-channel limit
-- **Pixel Count input** — Editable total pixel count (reverse-calculates px/m)
-- **Parts info** — Properties panel shows part breakdown for UV-mapped tubes
+### Beta v1.1.0 — Pixel Mode & UV Mapping
+- **Pixel Mode Toggle** — Per-tube selector: Discrete Pixels or UV Mapped
+- **Discrete mode** — Existing behavior: individual pixel spheres in viewport, GDTF fixtures in MVR
+- **UV Mapped mode** — No pixel spheres, no fixtures; exports clean 0→1 UV-mapped tube mesh for Capture's texture generator
+- **Auto-split** — UV-mapped tubes exceeding 512 channels are split into named parts (`_PT1_170px`, `_PT2_25px`) in the exported GLB
+- **Pixel Count input** — New editable field in Properties panel; change the total count and px/m is recalculated from tube length
+- **Parts info** — Properties panel shows the part breakdown (e.g. `2 parts (170px + 25px)`) for UV-mapped tubes
+- **No end caps** — Round tubes in UV-mapped mode are exported without hemispherical end caps to preserve clean UV range
+- **GDTF omission** — When all tubes are UV-mapped, the GenericLED.gdtf file is excluded from the MVR archive
+- **Backward compatible** — Old .neon project files load correctly; tubes default to Discrete mode
+- Removed Mac offline launcher (macOS users: use the online version)
 
-### Beta v1.0.1
-- Save/Load project (.neon files)
+### Beta v1.0.1 — Save/Load
+- Save full project as `.neon` file (`Ctrl+S`)
+- Load projects with all tube properties restored (`Ctrl+O`)
 
-### Beta v1.0.0
-- Initial release
+### Beta v1.0.0 — Initial Release
+- 3D tube drawing (click-place, freehand) on XZ/XY/YZ planes
+- Round, square, rectangular cross sections with presets
+- PBR silicone materials (Dark, Clear, Milky White, Frosted)
+- LED pixel placement with configurable pitch
+- DMX patching with universe wrapping
+- MVR 1.6 export with GDTF fixtures and GLB models
+- Tube editing: move, duplicate, delete, visibility toggle
+- Multi-plane drawing with auto-anchoring
+- Grid snap, adjustable grid size
+- Keyboard shortcuts and help overlay
 
 ## Tech Stack
 
