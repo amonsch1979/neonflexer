@@ -17,6 +17,8 @@ export class UIManager {
     this.toolbar.onSnapToggle = (enabled) => this._onSnapToggle(enabled);
     this.toolbar.onPlaneChange = (plane) => this._onPlaneChange(plane);
     this.toolbar.onExport = () => this._onExport();
+    this.toolbar.onSave = () => this._onSave();
+    this.toolbar.onLoad = () => this._onLoad();
     this.toolbar.onDeleteTube = () => this._onDeleteSelected();
     this.toolbar.onDuplicateTube = () => this._onDuplicateSelected();
     this.toolbar.onHelp = () => this.toggleHelp();
@@ -49,6 +51,14 @@ export class UIManager {
       this.propertiesPanel.show(tube);
       this._refreshTubeList();
     };
+
+    // Hidden file input for project loading
+    this._fileInput = document.createElement('input');
+    this._fileInput.type = 'file';
+    this._fileInput.accept = '.neon';
+    this._fileInput.style.display = 'none';
+    document.body.appendChild(this._fileInput);
+    this._fileInput.addEventListener('change', (e) => this._onFileSelected(e));
 
     // Create help overlay (hidden by default)
     this._createHelpOverlay();
@@ -179,6 +189,65 @@ export class UIManager {
     this._onPlaneChange(plane);
   }
 
+  // ── Save / Load ─────────────────────────────────────
+
+  _onSave() {
+    const statusEl = document.getElementById('status-text');
+    const tm = this.app.tubeManager;
+    if (tm.tubes.length === 0) {
+      if (statusEl) statusEl.textContent = 'Nothing to save — create some tubes first.';
+      return;
+    }
+    const sceneState = {
+      gridSizeM: this.app.sceneManager.gridSizeM,
+      currentPlane: this.app.sceneManager.currentPlane,
+    };
+    const data = tm.saveProject(sceneState);
+    const json = JSON.stringify(data, null, 2);
+    const blob = new Blob([json], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    const name = (tm.selectedTube ? tm.selectedTube.name : 'project').replace(/[^a-zA-Z0-9_-]/g, '_');
+    a.href = url;
+    a.download = `${name}.neon`;
+    a.click();
+    URL.revokeObjectURL(url);
+    if (statusEl) statusEl.textContent = `Project saved as ${name}.neon`;
+  }
+
+  _onLoad() {
+    this._fileInput.value = '';
+    this._fileInput.click();
+  }
+
+  _onFileSelected(e) {
+    const file = e.target.files[0];
+    if (!file) return;
+    const statusEl = document.getElementById('status-text');
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      try {
+        const data = JSON.parse(ev.target.result);
+        // Switch to select mode before loading
+        this.setTool('select');
+        const sceneState = this.app.tubeManager.loadProject(data);
+        // Restore scene state
+        if (sceneState.gridSizeM) {
+          this.app.sceneManager.setGridSize(sceneState.gridSizeM);
+        }
+        if (sceneState.currentPlane) {
+          this.setPlane(sceneState.currentPlane);
+        }
+        this._refreshAll();
+        if (statusEl) statusEl.textContent = `Loaded ${file.name} — ${this.app.tubeManager.tubes.length} tube(s)`;
+      } catch (err) {
+        console.error('Load error:', err);
+        if (statusEl) statusEl.textContent = `Load failed: ${err.message}`;
+      }
+    };
+    reader.readAsText(file);
+  }
+
   // ── Help Overlay ──────────────────────────────────────
 
   _createHelpOverlay() {
@@ -229,6 +298,8 @@ export class UIManager {
           </div>
           <div class="help-section">
             <div class="help-section-title">File</div>
+            <div class="help-row"><kbd>Ctrl + S</kbd><span>Save project (.neon)</span></div>
+            <div class="help-row"><kbd>Ctrl + O</kbd><span>Load project (.neon)</span></div>
             <div class="help-row"><kbd>Ctrl + E</kbd><span>Export as MVR</span></div>
             <div class="help-row"><kbd>?</kbd><span>Toggle this help</span></div>
           </div>

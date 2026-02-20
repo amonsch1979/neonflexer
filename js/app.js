@@ -102,6 +102,20 @@ class App {
         return;
       }
 
+      // Save project: Ctrl+S
+      if ((e.ctrlKey || e.metaKey) && (e.key === 's' || e.key === 'S')) {
+        e.preventDefault();
+        this.uiManager._onSave();
+        return;
+      }
+
+      // Load project: Ctrl+O
+      if ((e.ctrlKey || e.metaKey) && (e.key === 'o' || e.key === 'O')) {
+        e.preventDefault();
+        this.uiManager._onLoad();
+        return;
+      }
+
       // Export: Ctrl+E
       if ((e.ctrlKey || e.metaKey) && (e.key === 'e' || e.key === 'E')) {
         e.preventDefault();
