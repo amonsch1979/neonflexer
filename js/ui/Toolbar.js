@@ -171,7 +171,7 @@ export class Toolbar {
     label.style.fontSize = '12px';
     label.style.letterSpacing = '1px';
     label.style.fontWeight = '600';
-    label.textContent = 'MAGICTOOLBOX NEONFLEXER';
+    label.textContent = 'MAGICTOOLBOX NEONFLEXER Beta v1.0.0';
     branding.appendChild(label);
 
     this.container.appendChild(branding);

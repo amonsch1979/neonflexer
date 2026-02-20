@@ -1,4 +1,4 @@
-# MAGICTOOLBOX NEONFLEXER
+# MAGICTOOLBOX NEONFLEXER — Beta v1.0.0
 
 3D NeonFlex LED tube designer for lighting professionals. Draw tubes in 3D, configure LED pixels, set DMX patch, and export as MVR for direct import into Capture, WYSIWYG, Depence, or any MVR-compatible visualizer.
 
