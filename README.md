@@ -1,8 +1,8 @@
-# MAGICTOOLBOX NEONFLEXER — Beta v1.1.0
+# MAGICTOOLBOX NEONFLEXER — Beta v1.2.0
 
 3D NeonFlex LED tube designer for lighting professionals. Draw tubes in 3D, configure LED pixels, set DMX patch, and export as MVR for direct import into Capture, WYSIWYG, Depence, or any MVR-compatible visualizer.
 
-> **macOS users:** The downloadable offline version is currently Windows only. Mac users can use the full app online at **[amonsch1979.github.io/neonflexer](https://amonsch1979.github.io/neonflexer/)** — no install needed.
+> **macOS users:** The downloadable offline version is currently Windows only. Mac users can use the full app online — no install needed.
 
 ![MAGICTOOLBOX NEONFLEXER](screenshot.png)
 
@@ -51,6 +51,39 @@ The **Parts** info row in the Properties panel shows the breakdown before you ex
 - RGB (3ch) or RGBW (4ch) per pixel
 - Live patch range summary: `195px → U1.1 – U2.73 (585ch, 2 uni)`
 
+### Fixture Presets & Auto-Segmenting
+- **Fixture Presets** — Select real-world products (LEDStructures LS360FLEX, Generic 60/30/144 px/m) from the toolbar dropdown. Presets auto-fill profile, pixel pitch, DMX channels, and max tube length.
+- **Auto-Segmenting** — When a preset has a max length (e.g. LS360FLEX = 6000mm), tubes exceeding it are automatically split into segments of exactly that length, with connector pieces placed at each junction.
+- **Connectors** — Visual connector meshes between auto-segmented tube pieces. Exported in MVR alongside tube models.
+
+### Shape Tools
+- **Rectangle** (`4`) — Click two corners to draw a rectangular tube path
+- **Circle** (`5`) — Click center then edge to draw a circular tube path
+- Both auto-segment if the fixture preset has a max length
+
+### Cut / Split Tool
+- **Cut Tool** (`C`) — Hover over any tube and click to split
+- First cut on a closed tube opens it; second cut splits into two pieces
+- Both halves inherit all properties from the original
+
+### Reference Model Import
+- **Import** (`Ctrl+I`) — Load GLB, OBJ, 3DS, or MVR files as semi-transparent reference geometry
+- **MVR Import** — Parses MVR scene XML for correct placement of 3DS models (common from Capture)
+- **Auto-scale** — Detects mm/m scale mismatches and corrects automatically
+- **Snap to Ref** — Snap tube control points to the nearest surface of a reference model
+- **Ghost entries** — Saved projects remember ref model metadata; reimport the file to restore geometry
+
+### Tube Grouping
+- **Multi-select** — `Shift+Click` or `Ctrl+Click` tubes in the list panel to select multiple
+- **Group** (`Ctrl+G`) — Group selected tubes so they move together as a unit
+- **Ungroup** (`Ctrl+B`) — Break a group back into independent tubes
+- **Group-aware movement** — Dragging one tube in a group moves all members + connectors
+- **Visual indicators** — Grouped tubes show a colored left border and chain-link badge in the list
+
+### Start Pixel Picker
+- Pick the start pixel visually by hovering over pixels on a tube and clicking
+- Useful for offsetting the DMX start point along a tube
+
 ### Tube Editing
 - Select and move entire tubes in 3D with transform gizmo
 - Move individual control points
@@ -89,15 +122,24 @@ Open in your browser: **[amonsch1979.github.io/neonflexer](https://amonsch1979.g
 | `1` | Select / Move mode |
 | `2` | Click Place mode |
 | `3` | Freehand Draw mode |
+| `4` | Rectangle shape tool |
+| `5` | Circle shape tool |
+| `C` | Cut / Split tube tool |
 | `Ctrl+D` | Duplicate selected tube |
+| `Ctrl+G` | Group selected tubes |
+| `Ctrl+B` | Ungroup selected tubes |
 | `Del` | Delete selected tube or point |
 | `G` | Toggle grid snap |
+| `H` | Toggle Y-axis on move gizmo |
 | `F1` `F2` `F3` | Switch drawing plane (XZ / XY / YZ) |
 | `Shift+Drag` | Adjust height off-plane |
+| `Shift/Ctrl+Click` | Multi-select tubes (in list panel) |
 | `Enter` / `Dbl-Click` | Finish tube |
 | `Backspace` | Undo last point |
+| `Ctrl+S` | Save project |
+| `Ctrl+O` | Load project |
+| `Ctrl+I` | Import reference model |
 | `Ctrl+E` | Export MVR |
-| `H` | Toggle Y-axis on move gizmo |
 | `?` | Help overlay |
 | `Esc` | Cancel / close |
 
@@ -144,6 +186,23 @@ Tube bodies are exported as **GLB meshes with clean 0→1 UV coordinates** along
 You can have some tubes in Discrete mode and others in UV Mapped mode in the same project. The MVR export handles both correctly — discrete tubes get fixture elements, UV-mapped tubes get clean mesh geometry only.
 
 ## Changelog
+
+### Beta v1.2.0 — Fixture Presets, Auto-Segmenting, Grouping & Reference Models
+- **Fixture Presets** — Toolbar dropdown for real-world NeonFlex products (LEDStructures LS360FLEX, Generic 60/30/144 px/m). Auto-fills profile, pixel pitch, DMX channels, max tube length.
+- **Auto-Segmenting** — Tubes exceeding fixture max length are automatically split into precise segments with connector pieces at junctions. Binary search ensures each segment hits the exact target length.
+- **Connectors** — Visual connector meshes at segment junctions, included in MVR export and save/load.
+- **Shape Tools** — Rectangle (`4`) and Circle (`5`) drawing modes. Auto-segment when preset has max length. Auto-snap to reference model surfaces.
+- **Cut / Split Tool** — Press `C` to enter cut mode. Click on a tube to split it. First cut on a closed tube opens it; second cut splits into two pieces.
+- **Reference Model Import** — Load GLB, OBJ, 3DS, or full MVR files (`Ctrl+I`) as semi-transparent reference geometry. MVR import parses scene XML for correct 3DS model placement. Auto-scale detection.
+- **Snap to Ref** — Button in properties panel snaps tube control points to the nearest reference model surface.
+- **Tube Grouping** — Multi-select with `Shift+Click` or `Ctrl+Click` in the list panel. Group (`Ctrl+G`) and Ungroup (`Ctrl+B`). Moving one grouped tube moves all members and their connectors.
+- **Start Pixel Picker** — Visually pick the start pixel offset by hovering and clicking on tube pixels.
+- **Improved Arc Length** — `CurveBuilder.getLength` now scales arc-length divisions proportionally to control point count for sub-mm measurement accuracy on dense curves.
+- **Ghost Ref Models** — Saved projects store reference model metadata; ref models appear as ghost entries on load with a one-click reimport button.
+- **Auto Grid Resize** — Grid automatically grows when importing a reference model larger than the current grid.
+- Grouped tubes show colored left border and chain-link badge in the tube list
+- Save/load preserves groups, connectors, and reference model metadata
+- Updated help overlay with all new shortcuts
 
 ### Beta v1.1.0 — Pixel Mode & UV Mapping
 - **Pixel Mode Toggle** — Per-tube selector: Discrete Pixels or UV Mapped

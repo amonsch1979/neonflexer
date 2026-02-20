@@ -1,29 +1,46 @@
 import { TubeMaterialFactory } from '../tube/TubeMaterialFactory.js';
 import { PIXEL_PITCH_PRESETS, TUBE_DIAMETERS_MM, FLAT_TUBE_SIZES_MM } from '../utils/Units.js';
 import { CurveBuilder } from '../drawing/CurveBuilder.js';
+import { ReferenceModel } from '../ref/ReferenceModel.js';
+import { getPresetById, getPresetList } from '../tube/FixturePresets.js';
 
 /**
- * Right-side properties panel for editing selected tube parameters.
+ * Right-side properties panel for editing selected tube or ref model parameters.
  */
 export class PropertiesPanel {
   constructor(containerEl) {
     this.container = containerEl;
     this.currentTube = null;
-    this.onPropertyChange = null; // (tubeModel, propName) => {}
+    this.currentRefModel = null;
+    this.onPropertyChange = null;   // (tubeModel, propName) => {}
+    this.onRefModelChange = null;   // (refModel, propName) => {}
+    this.onRefModelRemove = null;   // (refModel) => {}
+    this.onSnapToRef = null;        // (tube) => {}
+    this.onPickStartPixel = null;   // (tube) => {}
+    this.hasRefModels = false;      // set by UIManager when ref models exist
 
     this._showEmpty();
   }
 
   /**
-   * Show properties for a tube.
+   * Show properties for a tube or ref model (polymorphic).
    */
-  show(tube) {
-    this.currentTube = tube;
-    if (!tube) {
+  show(item) {
+    this.currentTube = null;
+    this.currentRefModel = null;
+
+    if (!item) {
       this._showEmpty();
       return;
     }
-    this._build();
+
+    if (item instanceof ReferenceModel) {
+      this.currentRefModel = item;
+      this._buildRefModel();
+    } else {
+      this.currentTube = item;
+      this._build();
+    }
   }
 
   _showEmpty() {
@@ -41,6 +58,57 @@ export class PropertiesPanel {
       this._emit('name');
     }));
     this.container.appendChild(nameGroup);
+
+    // Fixture Preset
+    const presetGroup = this._group('Fixture Preset');
+    const presetOptions = getPresetList().map(p => ({
+      value: p.id,
+      label: p.label,
+    }));
+    this._row(presetGroup, 'Preset', this._select(
+      presetOptions,
+      tube.fixturePreset || 'custom',
+      (val) => {
+        tube.fixturePreset = val;
+        const preset = getPresetById(val);
+        if (preset) {
+          // Apply all non-null preset values to the tube
+          if (preset.profile != null) tube.profile = preset.profile;
+          if (preset.diameterMm != null) tube.diameterMm = preset.diameterMm;
+          if (preset.pixelsPerMeter != null) tube.pixelsPerMeter = preset.pixelsPerMeter;
+          if (preset.dmxChannelsPerPixel != null) tube.dmxChannelsPerPixel = preset.dmxChannelsPerPixel;
+          if (preset.materialPreset != null) tube.materialPreset = preset.materialPreset;
+        }
+        this._emit('fixturePreset');
+        this._build(); // Rebuild to reflect new values
+      }
+    ));
+
+    // Show max length info when preset has one
+    const activePreset = getPresetById(tube.fixturePreset);
+    if (activePreset && activePreset.maxLengthM) {
+      const maxMm = Math.round(activePreset.maxLengthM * 1000);
+      const infoRow = document.createElement('div');
+      infoRow.className = 'prop-row';
+      let infoText = `Max: ${maxMm}mm (auto-segments)`;
+
+      // Show current length vs max
+      if (tube.isValid) {
+        const curve = CurveBuilder.build(tube.controlPoints, tube.tension, tube.closed);
+        if (curve) {
+          const lengthMm = Math.round(CurveBuilder.getLength(curve) * 1000);
+          const pct = Math.round((lengthMm / maxMm) * 100);
+          const colorClass = pct > 100 ? 'length-exceeded' : pct > 90 ? 'length-warning' : '';
+          const colorStyle = pct > 100 ? 'color:#ff4444' : pct > 90 ? 'color:#ffaa44' : 'color:var(--accent-dim)';
+          infoText = `<span style="${colorStyle}">${lengthMm} / ${maxMm}mm (${pct}%)</span>`;
+        }
+      }
+
+      infoRow.innerHTML = `<span class="prop-label">Length</span><span style="font-size:11px;font-family:var(--font-mono)">${infoText}</span>`;
+      presetGroup.appendChild(infoRow);
+    }
+
+    this.container.appendChild(presetGroup);
 
     // Cross Section
     const csGroup = this._group('Cross Section');
@@ -196,27 +264,64 @@ export class PropertiesPanel {
       const curve = CurveBuilder.build(tube.controlPoints, tube.tension, tube.closed);
       if (curve) {
         const tubeLength = CurveBuilder.getLength(curve);
-        const pixelCount = Math.max(1, Math.round(tubeLength * tube.pixelsPerMeter));
-        this._row(pxGroup, 'Count', this._numberInput(pixelCount, 1, 9999, 1, 'px', (val) => {
+        const totalPixels = Math.max(1, Math.round(tubeLength * tube.pixelsPerMeter));
+
+        // Start pixel offset — skip N pixels from beginning of curve
+        const startPxWrap = document.createElement('div');
+        startPxWrap.style.display = 'flex';
+        startPxWrap.style.alignItems = 'center';
+        startPxWrap.style.flex = '1';
+        startPxWrap.style.gap = '3px';
+        const startPxInput = this._numberInput(tube.startPixel, 0, Math.max(0, totalPixels - 1), 1, '', (val) => {
+          tube.startPixel = Math.round(val);
+          this._emit('startPixel');
+          this._build();
+        });
+        startPxInput.style.flex = '1';
+        startPxWrap.appendChild(startPxInput);
+        const pickBtn = document.createElement('button');
+        pickBtn.className = 'btn';
+        pickBtn.style.padding = '2px 6px';
+        pickBtn.style.fontSize = '10px';
+        pickBtn.style.whiteSpace = 'nowrap';
+        pickBtn.textContent = 'Pick';
+        pickBtn.title = 'Click a pixel on the tube to set start pixel';
+        pickBtn.addEventListener('click', () => {
+          if (this.onPickStartPixel) this.onPickStartPixel(tube);
+        });
+        startPxWrap.appendChild(pickBtn);
+        this._row(pxGroup, 'Start Px', startPxWrap);
+
+        const activePx = Math.max(1, totalPixels - (tube.startPixel || 0));
+
+        this._row(pxGroup, 'Count', this._numberInput(totalPixels, 1, 9999, 1, 'px', (val) => {
           const count = Math.max(1, Math.round(val));
           tube.pixelsPerMeter = Math.max(1, Math.round(count / tubeLength));
           this._emit('pixelsPerMeter');
           this._build();
         }));
 
+        // Show active pixel count when startPixel > 0
+        if (tube.startPixel > 0) {
+          const activeRow = document.createElement('div');
+          activeRow.className = 'prop-row';
+          activeRow.innerHTML = `<span class="prop-label">Active</span><span style="font-size:11px;font-family:var(--font-mono);color:var(--accent-dim)">${activePx}px (skip ${tube.startPixel})</span>`;
+          pxGroup.appendChild(activeRow);
+        }
+
         // UV-mapped: show part split info for Capture's 512-channel limit
         if (isUVMapped) {
           const chPerPx = Number(tube.dmxChannelsPerPixel) || 3;
           const maxPxPerPart = Math.floor(512 / chPerPx);
-          const numParts = Math.ceil(pixelCount / maxPxPerPart);
+          const numParts = Math.ceil(activePx / maxPxPerPart);
           let partsText;
           if (numParts <= 1) {
-            partsText = `1 part (${pixelCount}px)`;
+            partsText = `1 part (${activePx}px)`;
           } else {
             const parts = [];
             for (let p = 0; p < numParts; p++) {
               const start = p * maxPxPerPart;
-              const end = Math.min(start + maxPxPerPart, pixelCount);
+              const end = Math.min(start + maxPxPerPart, activePx);
               parts.push(`${end - start}px`);
             }
             partsText = `${numParts} parts (${parts.join(' + ')})`;
@@ -302,14 +407,15 @@ export class PropertiesPanel {
       const curve = CurveBuilder.build(tube.controlPoints, tube.tension, tube.closed);
       if (curve) {
         const length = CurveBuilder.getLength(curve);
-        const pixelCount = Math.max(1, Math.round(length * tube.pixelsPerMeter));
+        const totalPixels = Math.max(1, Math.round(length * tube.pixelsPerMeter));
+        const activePx = Math.max(1, totalPixels - (tube.startPixel || 0));
         const ch = Number(tube.dmxChannelsPerPixel) || 3;
         const startUni = Number(tube.dmxUniverse) || 1;
         const startAddr = Number(tube.dmxAddress) || 1;
 
         let absCh = (startUni - 1) * 512 + (startAddr - 1);
         let lastUni = startUni, lastAddr = startAddr;
-        for (let i = 0; i < pixelCount; i++) {
+        for (let i = 0; i < activePx; i++) {
           const aiu = (absCh % 512) + 1;
           if (aiu + ch - 1 > 512) {
             absCh = (Math.floor(absCh / 512) + 1) * 512;
@@ -319,15 +425,15 @@ export class PropertiesPanel {
           absCh += ch;
         }
         const lastEnd = lastAddr + ch - 1;
-        const totalCh = pixelCount * ch;
+        const totalCh = activePx * ch;
         const universeCount = lastUni - startUni + 1;
 
         const summary = document.createElement('div');
         summary.className = 'prop-row';
         summary.style.flexWrap = 'wrap';
         const rangeText = universeCount > 1
-          ? `${pixelCount}px → U${startUni}.${startAddr} – U${lastUni}.${lastEnd} (${totalCh}ch, ${universeCount} uni)`
-          : `${pixelCount}px → U${startUni}.${startAddr} – .${lastEnd} (${totalCh}ch)`;
+          ? `${activePx}px → U${startUni}.${startAddr} – U${lastUni}.${lastEnd} (${totalCh}ch, ${universeCount} uni)`
+          : `${activePx}px → U${startUni}.${startAddr} – .${lastEnd} (${totalCh}ch)`;
         summary.innerHTML = `<span class="prop-label">Range</span><span style="font-size:11px;font-family:var(--font-mono);color:var(--accent-dim)">${rangeText}</span>`;
         dmxGroup.appendChild(summary);
       }
@@ -366,6 +472,20 @@ export class PropertiesPanel {
 
     this.container.appendChild(curveGroup);
 
+    // Tools
+    if (this.hasRefModels) {
+      const toolsGroup = this._group('Tools');
+      const snapBtn = document.createElement('button');
+      snapBtn.className = 'btn btn-block';
+      snapBtn.textContent = 'Snap to Ref';
+      snapBtn.title = 'Project control points onto nearest reference model surface';
+      snapBtn.addEventListener('click', () => {
+        if (this.onSnapToRef) this.onSnapToRef(tube);
+      });
+      toolsGroup.appendChild(snapBtn);
+      this.container.appendChild(toolsGroup);
+    }
+
     // Info
     if (tube.isValid) {
       const infoGroup = this._group('Info');
@@ -390,6 +510,194 @@ export class PropertiesPanel {
     if (this.onPropertyChange && this.currentTube) {
       this.onPropertyChange(this.currentTube, propName);
     }
+  }
+
+  _emitRef(propName) {
+    if (this.onRefModelChange && this.currentRefModel) {
+      this.onRefModelChange(this.currentRefModel, propName);
+    }
+  }
+
+  /**
+   * Build ref model properties UI.
+   */
+  _buildRefModel() {
+    const ref = this.currentRefModel;
+    this.container.innerHTML = '';
+
+    // Name (read-only)
+    const nameGroup = this._group('Reference Model');
+    const nameRow = document.createElement('div');
+    nameRow.className = 'prop-row';
+    const nameLabel = document.createElement('span');
+    nameLabel.className = 'prop-label';
+    nameLabel.textContent = 'Name';
+    nameRow.appendChild(nameLabel);
+    const nameVal = document.createElement('span');
+    nameVal.style.fontSize = '12px';
+    nameVal.style.fontFamily = 'var(--font-mono)';
+    nameVal.style.overflow = 'hidden';
+    nameVal.style.textOverflow = 'ellipsis';
+    nameVal.style.whiteSpace = 'nowrap';
+    nameVal.textContent = ref.name;
+    nameRow.appendChild(nameVal);
+    nameGroup.appendChild(nameRow);
+
+    if (ref.needsReimport) {
+      const ghostRow = document.createElement('div');
+      ghostRow.className = 'prop-row';
+      ghostRow.innerHTML = '<span style="font-size:11px;color:var(--warning);font-style:italic">File not loaded — click "reimport" in the tube list</span>';
+      nameGroup.appendChild(ghostRow);
+    }
+
+    this.container.appendChild(nameGroup);
+
+    // Visibility & Display
+    const displayGroup = this._group('Display');
+
+    // Visible toggle
+    const visRow = document.createElement('div');
+    visRow.className = 'toggle-row';
+    const visLabel = document.createElement('span');
+    visLabel.className = 'prop-label';
+    visLabel.textContent = 'Visible';
+    visRow.appendChild(visLabel);
+    const visToggle = document.createElement('label');
+    visToggle.className = 'toggle-switch';
+    const visCb = document.createElement('input');
+    visCb.type = 'checkbox';
+    visCb.checked = ref.visible;
+    visCb.addEventListener('change', () => {
+      ref.visible = visCb.checked;
+      this._emitRef('visible');
+    });
+    const visSlider = document.createElement('span');
+    visSlider.className = 'toggle-slider';
+    visToggle.appendChild(visCb);
+    visToggle.appendChild(visSlider);
+    visRow.appendChild(visToggle);
+    displayGroup.appendChild(visRow);
+
+    // Opacity slider
+    this._row(displayGroup, 'Opacity', this._rangeInput(ref.opacity, 0, 1, 0.01, (val) => {
+      ref.opacity = val;
+      this._emitRef('opacity');
+    }, `${Math.round(ref.opacity * 100)}%`));
+
+    // Wireframe toggle
+    const wireRow = document.createElement('div');
+    wireRow.className = 'toggle-row';
+    const wireLabel = document.createElement('span');
+    wireLabel.className = 'prop-label';
+    wireLabel.textContent = 'Wireframe';
+    wireRow.appendChild(wireLabel);
+    const wireToggle = document.createElement('label');
+    wireToggle.className = 'toggle-switch';
+    const wireCb = document.createElement('input');
+    wireCb.type = 'checkbox';
+    wireCb.checked = ref.wireframe;
+    wireCb.addEventListener('change', () => {
+      ref.wireframe = wireCb.checked;
+      this._emitRef('wireframe');
+    });
+    const wireSlider = document.createElement('span');
+    wireSlider.className = 'toggle-slider';
+    wireToggle.appendChild(wireCb);
+    wireToggle.appendChild(wireSlider);
+    wireRow.appendChild(wireToggle);
+    displayGroup.appendChild(wireRow);
+
+    this.container.appendChild(displayGroup);
+
+    // Transform
+    const xformGroup = this._group('Transform');
+
+    // Position X/Y/Z
+    this._row(xformGroup, 'Pos X', this._numberInput(ref.position.x, -999, 999, 0.01, 'm', (val) => {
+      ref.position.x = val;
+      this._emitRef('position');
+    }));
+    this._row(xformGroup, 'Pos Y', this._numberInput(ref.position.y, -999, 999, 0.01, 'm', (val) => {
+      ref.position.y = val;
+      this._emitRef('position');
+    }));
+    this._row(xformGroup, 'Pos Z', this._numberInput(ref.position.z, -999, 999, 0.01, 'm', (val) => {
+      ref.position.z = val;
+      this._emitRef('position');
+    }));
+
+    // Rotation X/Y/Z (display in degrees, store in radians)
+    const RAD2DEG = 180 / Math.PI;
+    const DEG2RAD = Math.PI / 180;
+    this._row(xformGroup, 'Rot X', this._numberInput(ref.rotation.x * RAD2DEG, -360, 360, 1, 'deg', (val) => {
+      ref.rotation.x = val * DEG2RAD;
+      this._emitRef('rotation');
+    }));
+    this._row(xformGroup, 'Rot Y', this._numberInput(ref.rotation.y * RAD2DEG, -360, 360, 1, 'deg', (val) => {
+      ref.rotation.y = val * DEG2RAD;
+      this._emitRef('rotation');
+    }));
+    this._row(xformGroup, 'Rot Z', this._numberInput(ref.rotation.z * RAD2DEG, -360, 360, 1, 'deg', (val) => {
+      ref.rotation.z = val * DEG2RAD;
+      this._emitRef('rotation');
+    }));
+
+    // Uniform scale
+    this._row(xformGroup, 'Scale', this._numberInput(ref.scale, 0.01, 10, 0.01, 'x', (val) => {
+      ref.scale = val;
+      this._emitRef('scale');
+    }));
+
+    this.container.appendChild(xformGroup);
+
+    // Remove button
+    const removeGroup = document.createElement('div');
+    removeGroup.style.marginTop = '12px';
+    const removeBtn = document.createElement('button');
+    removeBtn.className = 'btn btn-danger btn-block';
+    removeBtn.textContent = 'Remove Reference Model';
+    removeBtn.addEventListener('click', () => {
+      if (this.onRefModelRemove) this.onRefModelRemove(ref);
+    });
+    removeGroup.appendChild(removeBtn);
+    this.container.appendChild(removeGroup);
+  }
+
+  /**
+   * Range input (slider) with value display.
+   */
+  _rangeInput(value, min, max, step, onChange, displayText) {
+    const wrap = document.createElement('div');
+    wrap.style.display = 'flex';
+    wrap.style.alignItems = 'center';
+    wrap.style.flex = '1';
+    wrap.style.gap = '6px';
+
+    const slider = document.createElement('input');
+    slider.type = 'range';
+    slider.className = 'prop-range';
+    slider.min = min;
+    slider.max = max;
+    slider.step = step;
+    slider.value = value;
+
+    const display = document.createElement('span');
+    display.style.fontSize = '10px';
+    display.style.fontFamily = 'var(--font-mono)';
+    display.style.color = 'var(--text-secondary)';
+    display.style.minWidth = '32px';
+    display.style.textAlign = 'right';
+    display.textContent = displayText || value;
+
+    slider.addEventListener('input', () => {
+      const v = parseFloat(slider.value);
+      display.textContent = `${Math.round(v * 100)}%`;
+      onChange(v);
+    });
+
+    wrap.appendChild(slider);
+    wrap.appendChild(display);
+    return wrap;
   }
 
   _group(title) {

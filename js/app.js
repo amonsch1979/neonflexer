@@ -53,6 +53,22 @@ class App {
         this.uiManager.setTool('freehand');
         return;
       }
+      if (e.key === '4') {
+        this.uiManager.setTool('rectangle');
+        return;
+      }
+      if (e.key === '5') {
+        this.uiManager.setTool('circle');
+        return;
+      }
+
+      // Cut tool: C
+      if (e.key === 'c' || e.key === 'C') {
+        if (!e.ctrlKey && !e.metaKey) {
+          this.uiManager.setTool('cut');
+          return;
+        }
+      }
 
       // Drawing plane: F1, F2, F3
       if (e.key === 'F1') {
@@ -71,8 +87,22 @@ class App {
         return;
       }
 
-      // Grid snap toggle: G
-      if (e.key === 'g' || e.key === 'G') {
+      // Group tubes: Ctrl+G
+      if ((e.ctrlKey || e.metaKey) && (e.key === 'g' || e.key === 'G')) {
+        e.preventDefault();
+        this.uiManager._onGroupTubes();
+        return;
+      }
+
+      // Ungroup tubes: Ctrl+B
+      if ((e.ctrlKey || e.metaKey) && (e.key === 'b' || e.key === 'B')) {
+        e.preventDefault();
+        this.uiManager._onUngroupTubes();
+        return;
+      }
+
+      // Grid snap toggle: G (only without Ctrl)
+      if ((e.key === 'g' || e.key === 'G') && !e.ctrlKey && !e.metaKey) {
         this.uiManager.toolbar.snapEnabled = !this.uiManager.toolbar.snapEnabled;
         this.uiManager.toolbar.snapBtn.classList.toggle('active', this.uiManager.toolbar.snapEnabled);
         this.drawingManager.setSnap(this.uiManager.toolbar.snapEnabled);
@@ -116,6 +146,13 @@ class App {
         return;
       }
 
+      // Import reference model: Ctrl+I
+      if ((e.ctrlKey || e.metaKey) && (e.key === 'i' || e.key === 'I')) {
+        e.preventDefault();
+        this.uiManager._onImportRef();
+        return;
+      }
+
       // Export: Ctrl+E
       if ((e.ctrlKey || e.metaKey) && (e.key === 'e' || e.key === 'E')) {
         e.preventDefault();
@@ -123,8 +160,8 @@ class App {
         return;
       }
 
-      // Help: ? or F12
-      if (e.key === '?' || e.key === 'F12') {
+      // Help: ?
+      if (e.key === '?') {
         e.preventDefault();
         this.uiManager.toggleHelp();
         return;

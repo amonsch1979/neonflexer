@@ -21,6 +21,11 @@ export class PixelDistributor {
     const { points, count } = CurveBuilder.getPixelPoints(curve, tubeModel.pixelsPerMeter);
     if (count === 0) return group;
 
+    // Skip startPixel pixels from the beginning of the curve
+    const startPx = tubeModel.startPixel || 0;
+    const activePoints = startPx > 0 ? points.slice(startPx) : points;
+    if (activePoints.length === 0) return group;
+
     // Pixel size = 30% of inner radius
     const pixelSize = Math.max(0.001, tubeModel.innerRadius * 0.3);
     const pixelMaterial = TubeMaterialFactory.createPixelMaterial(tubeModel.pixelColor, tubeModel.pixelEmissive);
@@ -28,10 +33,10 @@ export class PixelDistributor {
     // Use small sphere geometry for each pixel
     const pixelGeo = new THREE.SphereGeometry(pixelSize, 8, 8);
 
-    for (let i = 0; i < points.length; i++) {
+    for (let i = 0; i < activePoints.length; i++) {
       const mesh = new THREE.Mesh(pixelGeo, pixelMaterial);
-      mesh.position.copy(points[i]);
-      mesh.name = `Pixel_${tubeModel.id}_${i}`;
+      mesh.position.copy(activePoints[i]);
+      mesh.name = `Pixel_${tubeModel.id}_${startPx + i}`;
       group.add(mesh);
     }
 

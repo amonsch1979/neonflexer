@@ -20,9 +20,19 @@ export class CurveBuilder {
 
   /**
    * Get the total arc length of the curve in meters.
+   * Scales arcLengthDivisions proportionally to control point count
+   * for accurate measurement on densely-sampled curves.
    */
   static getLength(curve) {
-    return curve ? curve.getLength() : 0;
+    if (!curve) return 0;
+    // Default 200 divisions is too few for curves with many control points.
+    // Use at least 10 divisions per cubic segment for sub-mm accuracy.
+    const needed = curve.points.length * 10;
+    if (needed > curve.arcLengthDivisions) {
+      curve.arcLengthDivisions = needed;
+      curve.needsUpdate = true;
+    }
+    return curve.getLength();
   }
 
   /**

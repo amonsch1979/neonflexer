@@ -17,6 +17,7 @@ export class FreehandMode {
     this.minDistance = 0.003;
     this.snapEnabled = true;
     this.gridSize = 0.01;
+    this.maxLengthM = 0; // Set by DrawingManager when preset has maxLength
 
     this.onComplete = null;
 
@@ -170,7 +171,22 @@ export class FreehandMode {
   _showLengthOverlay(lengthMeters) {
     const overlay = document.getElementById('length-overlay');
     if (!overlay) return;
-    overlay.textContent = `${(lengthMeters * 1000).toFixed(0)} mm`;
+    const lengthMm = (lengthMeters * 1000).toFixed(0);
+
+    if (this.maxLengthM > 0) {
+      const maxMm = Math.round(this.maxLengthM * 1000);
+      const pct = Math.round((lengthMeters / this.maxLengthM) * 100);
+      const segments = Math.ceil(lengthMeters / this.maxLengthM);
+      let text = `${lengthMm} / ${maxMm} mm (${pct}%)`;
+      if (segments > 1) {
+        text += ` → ${segments} segments`;
+      }
+      overlay.textContent = text;
+      overlay.style.color = pct > 100 ? '#ff4444' : pct > 90 ? '#ffaa44' : '';
+    } else {
+      overlay.textContent = `${lengthMm} mm`;
+      overlay.style.color = '';
+    }
     overlay.classList.add('visible');
   }
 
@@ -179,6 +195,7 @@ export class FreehandMode {
     if (overlay) {
       overlay.classList.remove('visible');
       overlay.textContent = '';
+      overlay.style.color = '';
     }
   }
 

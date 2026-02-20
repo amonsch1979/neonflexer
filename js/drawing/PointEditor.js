@@ -207,7 +207,11 @@ export class PointEditor {
   _onTubeMoveLive() {
     if (!this._movingTube || !this._movingTube.group) return;
     const delta = this._tubePivot.position.clone().sub(this._tubeMoveStart);
-    this._movingTube.group.position.copy(delta);
+    // Move all group members visually
+    const members = this.tubeManager.getGroupMembers(this._movingTube);
+    for (const member of members) {
+      if (member.group) member.group.position.copy(delta);
+    }
   }
 
   /** On drag end: apply the delta to all control points and rebuild */
@@ -217,11 +221,14 @@ export class PointEditor {
 
     const delta = this._tubePivot.position.clone().sub(this._tubeMoveStart);
 
-    // Reset group position (the rebuild will place geometry at the new points)
-    if (tube.group) tube.group.position.set(0, 0, 0);
+    // Reset group position on all members (the rebuild will place geometry at the new points)
+    const members = this.tubeManager.getGroupMembers(tube);
+    for (const member of members) {
+      if (member.group) member.group.position.set(0, 0, 0);
+    }
 
     if (delta.lengthSq() > 0.000001) {
-      this.tubeManager.moveTube(tube, delta);
+      this.tubeManager.moveGroup(tube, delta);
     }
 
     // Re-place pivot at new centroid for further moves
@@ -234,9 +241,10 @@ export class PointEditor {
 
   _clearTubeMove() {
     if (this._movingTube) {
-      // Reset any partial group offset
-      if (this._movingTube.group) {
-        this._movingTube.group.position.set(0, 0, 0);
+      // Reset any partial group offset on all members
+      const members = this.tubeManager ? this.tubeManager.getGroupMembers(this._movingTube) : [this._movingTube];
+      for (const member of members) {
+        if (member.group) member.group.position.set(0, 0, 0);
       }
       this._movingTube = null;
       this._tubeMoveStart = null;

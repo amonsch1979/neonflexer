@@ -26,6 +26,7 @@ export class TubeModel {
     // Pixel config
     this.pixelMode = options.pixelMode || 'discrete'; // 'discrete' | 'uv-mapped'
     this.pixelsPerMeter = options.pixelsPerMeter || 60;
+    this.startPixel = options.startPixel || 0; // skip N pixels from start of curve
     this.pixelColor = options.pixelColor || '#ffffff';
     this.pixelEmissive = options.pixelEmissive !== undefined ? options.pixelEmissive : true;
 
@@ -36,6 +37,12 @@ export class TubeModel {
     // Clamp address so fixture fits within 512
     const maxAddr = 512 - this.dmxChannelsPerPixel + 1;
     this.dmxAddress = Math.min(Math.max(1, options.dmxAddress || 1), maxAddr);
+
+    // Fixture preset
+    this.fixturePreset = options.fixturePreset || 'custom';
+
+    // Group
+    this.groupId = options.groupId || null;
 
     // Curve
     this.tension = options.tension || 0.5;
@@ -115,12 +122,15 @@ export class TubeModel {
       materialPreset: this.materialPreset,
       pixelMode: this.pixelMode,
       pixelsPerMeter: this.pixelsPerMeter,
+      startPixel: this.startPixel,
       pixelColor: this.pixelColor,
       pixelEmissive: this.pixelEmissive,
       fixtureId: this.fixtureId,
       dmxUniverse: this.dmxUniverse,
       dmxAddress: this.dmxAddress,
       dmxChannelsPerPixel: this.dmxChannelsPerPixel,
+      fixturePreset: this.fixturePreset,
+      // groupId deliberately omitted — clone is independent
       tension: this.tension,
       closed: this.closed,
     });
@@ -141,12 +151,15 @@ export class TubeModel {
       materialPreset: this.materialPreset,
       pixelMode: this.pixelMode,
       pixelsPerMeter: this.pixelsPerMeter,
+      startPixel: this.startPixel,
       pixelColor: this.pixelColor,
       pixelEmissive: this.pixelEmissive,
       fixtureId: this.fixtureId,
       dmxUniverse: this.dmxUniverse,
       dmxChannelsPerPixel: this.dmxChannelsPerPixel,
       dmxAddress: this.dmxAddress,
+      fixturePreset: this.fixturePreset,
+      groupId: this.groupId,
       visible: this.visible,
       color: this.color,
     };
@@ -166,12 +179,15 @@ export class TubeModel {
       materialPreset: data.materialPreset,
       pixelMode: data.pixelMode || 'discrete',
       pixelsPerMeter: data.pixelsPerMeter,
+      startPixel: data.startPixel || 0,
       pixelColor: data.pixelColor,
       pixelEmissive: data.pixelEmissive,
       fixtureId: data.fixtureId,
       dmxUniverse: data.dmxUniverse,
       dmxChannelsPerPixel: data.dmxChannelsPerPixel,
       dmxAddress: data.dmxAddress,
+      fixturePreset: data.fixturePreset || 'custom',
+      groupId: data.groupId || null,
       color: data.color,
     });
     if (data.id != null) tube.id = data.id;

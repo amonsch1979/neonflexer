@@ -597,3 +597,146 @@ input[type="color"].prop-input {
 .help-row span {
   flex: 1;
 }
+
+/* List Section Headers */
+.list-section-header {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--accent-dim);
+  padding: 8px 8px 4px 8px;
+  user-select: none;
+}
+
+.list-section-header.ref-section-header {
+  margin-top: 8px;
+  border-top: 1px solid var(--border);
+  padding-top: 10px;
+  color: var(--warning);
+}
+
+/* Reference Model List Items */
+.ref-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 12px;
+  transition: background 0.1s;
+  user-select: none;
+}
+
+.ref-item:hover {
+  background: var(--bg-panel);
+}
+
+.ref-item.selected {
+  background: rgba(255, 170, 68, 0.15);
+  border: 1px solid var(--warning);
+}
+
+.ref-item .ref-icon {
+  flex-shrink: 0;
+  color: var(--warning);
+  display: flex;
+  align-items: center;
+}
+
+.ref-item .ref-name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ref-item .tube-actions {
+  display: flex;
+  gap: 2px;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+
+.ref-item:hover .tube-actions {
+  opacity: 1;
+}
+
+/* Ghost (unreimported) ref model entries */
+.ref-item.ghost {
+  opacity: 0.5;
+}
+
+.ref-item.ghost .ref-name {
+  font-style: italic;
+}
+
+.ref-ghost-hint {
+  font-size: 9px;
+  color: var(--warning);
+  background: rgba(255, 170, 68, 0.15);
+  padding: 1px 5px;
+  border-radius: 3px;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.ref-ghost-hint:hover {
+  background: rgba(255, 170, 68, 0.3);
+}
+
+/* Range slider for opacity etc. */
+.prop-range {
+  flex: 1;
+  -webkit-appearance: none;
+  appearance: none;
+  height: 4px;
+  background: var(--border);
+  border-radius: 2px;
+  outline: none;
+  cursor: pointer;
+}
+
+.prop-range::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 14px;
+  height: 14px;
+  background: var(--accent);
+  border-radius: 50%;
+  cursor: pointer;
+}
+
+.prop-range::-moz-range-thumb {
+  width: 14px;
+  height: 14px;
+  background: var(--accent);
+  border-radius: 50%;
+  border: none;
+  cursor: pointer;
+}
+
+/* Length warning styles for fixture presets */
+.length-warning { color: #ffaa44; }
+.length-exceeded { color: #ff4444; }
+
+/* Tube grouping styles */
+.tube-item.grouped {
+  border-left: 3px solid transparent;
+}
+
+.tube-item.multi-selected {
+  background: rgba(0, 212, 255, 0.12);
+}
+
+.tube-item.multi-selected.selected {
+  background: var(--accent-glow);
+}
+
+.tube-group-badge {
+  flex-shrink: 0;
+  color: var(--text-muted);
+  display: flex;
+  align-items: center;
+  margin-right: -2px;
+}

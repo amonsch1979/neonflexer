@@ -17,6 +17,12 @@ export class ClickPlaceMode {
     this.cursorMarker = null;
     this.snapEnabled = true;
     this.gridSize = 0.01;
+    this.maxLengthM = 0; // Set by DrawingManager when preset has maxLength
+    this.segmentNumber = 1; // Current segment counter (resets on activate)
+
+    // Segment continuation state — drawing pauses between segments
+    this._waitingForContinue = false;
+    this._continuePoint = null;
 
     // Shift-drag state
     this._shiftDragging = false;
@@ -27,7 +33,8 @@ export class ClickPlaceMode {
 
     // Callbacks
     this.onPointAdded = null;
-    this.onComplete = null;
+    this.onComplete = null;          // (points) => {} — final completion
+    this.onSegmentComplete = null;   // (points, segNum) => {} — mid-draw segment auto-complete
     this.onPreviewUpdate = null;
 
     this._onPointerMove = this._onMouseMove.bind(this);
@@ -35,6 +42,7 @@ export class ClickPlaceMode {
     this._onPointerUp = this._onMouseUp.bind(this);
     this._onDblClick = this._onDblClick.bind(this);
     this._onKeyDown = this._onKeyDown.bind(this);
+    this._onContextMenu = this._onContextMenu.bind(this);
 
     // Cursor marker
     this.cursorMarker = new THREE.Mesh(
@@ -49,6 +57,7 @@ export class ClickPlaceMode {
   activate() {
     this.active = true;
     this.points = [];
+    this.segmentNumber = 1;
     this._clearVisuals();
     this.cursorMarker.visible = true;
     // Reset plane to origin when starting fresh
@@ -58,6 +67,7 @@ export class ClickPlaceMode {
     canvas.addEventListener('pointerdown', this._onPointerDown);
     canvas.addEventListener('pointerup', this._onPointerUp);
     canvas.addEventListener('dblclick', this._onDblClick);
+    canvas.addEventListener('contextmenu', this._onContextMenu);
     document.addEventListener('keydown', this._onKeyDown);
     canvas.style.cursor = 'crosshair';
   }
@@ -65,6 +75,8 @@ export class ClickPlaceMode {
   deactivate() {
     this.active = false;
     this._shiftDragging = false;
+    this._waitingForContinue = false;
+    this._continuePoint = null;
     this.cursorMarker.visible = false;
     this._clearVisuals();
     this._clearHeightLine();
@@ -75,6 +87,7 @@ export class ClickPlaceMode {
     canvas.removeEventListener('pointerdown', this._onPointerDown);
     canvas.removeEventListener('pointerup', this._onPointerUp);
     canvas.removeEventListener('dblclick', this._onDblClick);
+    canvas.removeEventListener('contextmenu', this._onContextMenu);
     document.removeEventListener('keydown', this._onKeyDown);
     canvas.style.cursor = '';
   }
@@ -92,6 +105,7 @@ export class ClickPlaceMode {
 
   _onMouseMove(e) {
     if (!this.active) return;
+    if (this._waitingForContinue) return; // Paused between segments
 
     if (this._shiftDragging && this.points.length > 0) {
       this._handleShiftDrag(e);
@@ -117,7 +131,18 @@ export class ClickPlaceMode {
   }
 
   _onMouseDown(e) {
-    if (!this.active || e.button !== 0) return;
+    if (!this.active) return;
+
+    // If waiting between segments, RIGHT-CLICK continues to next segment
+    if (this._waitingForContinue) {
+      if (e.button === 2) {
+        this._startNextSegment();
+      }
+      // Left-click ignored while waiting
+      return;
+    }
+
+    if (e.button !== 0) return; // Only left-click for point placement
 
     // Shift+click = start height drag on last point
     if (e.shiftKey && this.points.length > 0) {
@@ -146,6 +171,24 @@ export class ClickPlaceMode {
 
     this._updateStatusText();
     this._updateLengthOverlay(this.points);
+
+    // Auto-segment: if maxLength is set and curve reached it, cap and stop
+    if (this.maxLengthM > 0 && this.points.length >= 2) {
+      const length = this._getCurveLength(this.points);
+      if (length >= this.maxLengthM) {
+        this._capAtMaxLength();
+        this._autoCompleteSegment();
+      }
+    }
+  }
+
+  /**
+   * Prevent browser context menu when right-click is used for segment continue.
+   */
+  _onContextMenu(e) {
+    if (this._waitingForContinue) {
+      e.preventDefault();
+    }
   }
 
   _onMouseUp(e) {
@@ -248,12 +291,27 @@ export class ClickPlaceMode {
   // --- Keyboard ---
 
   _onDblClick(e) {
-    if (!this.active || this.points.length < 2) return;
+    if (!this.active) return;
+    // While waiting, dbl-click finishes drawing entirely (no more segments)
+    if (this._waitingForContinue) {
+      this._finishFromWaiting();
+      return;
+    }
+    if (this.points.length < 2) return;
     this._complete();
   }
 
   _onKeyDown(e) {
     if (!this.active) return;
+    if (this._waitingForContinue) {
+      if (e.key === 'Enter') {
+        // Enter finishes drawing entirely (no more segments)
+        this._finishFromWaiting();
+      } else if (e.key === 'Escape') {
+        this._cancel();
+      }
+      return;
+    }
     if (e.key === 'Enter' && this.points.length >= 2) {
       this._complete();
     } else if (e.key === 'Escape') {
@@ -265,11 +323,161 @@ export class ClickPlaceMode {
 
   // --- Complete / Cancel ---
 
+  /**
+   * Replace control points with dense samples from the original curve,
+   * trimmed to exactly maxLengthM. Dense sampling constrains the rebuilt
+   * CatmullRom to closely follow the original curve. A final binary
+   * search on the last point guarantees length <= maxLengthM.
+   */
+  _capAtMaxLength() {
+    if (this.points.length < 2) return;
+
+    const curve = CurveBuilder.build(this.points, 0.5, false);
+    if (!curve) return;
+    const totalLength = CurveBuilder.getLength(curve);
+    if (totalLength <= this.maxLengthM) return;
+
+    // Sample the original curve from 0 to maxLengthM with dense points
+    const tCut = this.maxLengthM / totalLength;
+    const numSamples = 50; // ~120mm spacing for 6m tube — tight enough for CatmullRom fidelity
+
+    // Clear old markers
+    for (const marker of this.pointMarkers) {
+      this.sceneManager.scene.remove(marker);
+      marker.geometry.dispose();
+      marker.material.dispose();
+    }
+    this.pointMarkers = [];
+
+    const newPoints = [];
+    for (let i = 0; i <= numSamples; i++) {
+      const t = (i / numSamples) * tCut;
+      newPoints.push(curve.getPointAt(t));
+    }
+    this.points = newPoints;
+
+    // Fine-tune: binary search the last sample point to guarantee <= maxLengthM
+    const lastIdx = this.points.length - 1;
+    const prevPt = this.points[lastIdx - 1];
+    const origLast = this.points[lastIdx].clone();
+    let lo = 0, hi = 1;
+
+    for (let i = 0; i < 20; i++) {
+      const mid = (lo + hi) / 2;
+      this.points[lastIdx] = new THREE.Vector3().lerpVectors(prevPt, origLast, mid);
+
+      const c = CurveBuilder.build(this.points, 0.5, false);
+      if (!c) break;
+      const len = CurveBuilder.getLength(c);
+
+      if (len > this.maxLengthM) {
+        hi = mid;
+      } else {
+        lo = mid;
+      }
+      if (hi - lo < 0.0001) break;
+    }
+    // lo is guaranteed <= maxLengthM
+    this.points[lastIdx] = new THREE.Vector3().lerpVectors(prevPt, origLast, lo);
+
+    // Add markers for first and last
+    this._addPointMarker(this.points[0]);
+    this._addPointMarker(this.points[lastIdx]);
+
+    this._updatePreview(this.points);
+    this._updateLengthOverlay(this.points);
+  }
+
+  /**
+   * Auto-complete the current segment when maxLength is reached.
+   * PAUSES drawing — user must RIGHT-CLICK to continue with the next segment.
+   */
+  _autoCompleteSegment() {
+    const pts = this.points.slice();
+    this._clearVisuals();
+    this._clearHeightLine();
+
+    // Save continuation point (end of this segment = start of next)
+    const lastPoint = pts[pts.length - 1].clone();
+
+    // Complete this segment (DrawingManager creates the tube + connector)
+    if (this.onSegmentComplete) {
+      this.onSegmentComplete(pts, this.segmentNumber);
+    }
+
+    this.segmentNumber++;
+
+    // PAUSE — enter waiting state, user must right-click to continue
+    this._waitingForContinue = true;
+    this._continuePoint = lastPoint;
+    this.points = [];
+    this.cursorMarker.visible = false;
+
+    // Show a marker at the continuation point
+    this._addPointMarker(lastPoint);
+
+    const maxMm = Math.round(this.maxLengthM * 1000);
+    const statusEl = document.getElementById('status-text');
+    if (statusEl) {
+      statusEl.textContent = `Seg ${this.segmentNumber - 1} complete (${maxMm}mm) — Right-click to continue segment ${this.segmentNumber} | Enter/Dbl-click to finish | Esc cancel`;
+    }
+
+    const overlay = document.getElementById('length-overlay');
+    if (overlay) {
+      overlay.textContent = `Seg ${this.segmentNumber - 1}: ${maxMm}mm — Right-click to continue`;
+      overlay.style.color = '#00ff88';
+      overlay.classList.add('visible');
+    }
+  }
+
+  /**
+   * User right-clicked to continue after segment pause — start the next segment.
+   */
+  _startNextSegment() {
+    this._waitingForContinue = false;
+    const startPt = this._continuePoint;
+    this._continuePoint = null;
+
+    // Clear the waiting marker
+    this._clearVisuals();
+
+    // Restore cursor
+    this.cursorMarker.visible = true;
+
+    // Start new segment from the continuation point
+    this.points = [startPt];
+    this._addPointMarker(startPt);
+    this.sceneManager.anchorPlaneAt(startPt);
+
+    this._updateStatusText();
+    this._updateLengthOverlay(this.points);
+  }
+
+  /**
+   * Finish drawing entirely from the waiting state (Enter or dbl-click).
+   * Does not start a new segment — just exits drawing mode.
+   */
+  _finishFromWaiting() {
+    this._waitingForContinue = false;
+    this._continuePoint = null;
+    this._clearVisuals();
+    this._hideLengthOverlay();
+    this.points = [];
+    this.segmentNumber = 1;
+    this.cursorMarker.visible = true;
+    this.sceneManager.resetPlaneAnchor();
+    // Trigger the final drawing-complete callback (switches back to select mode)
+    if (this.onComplete) {
+      this.onComplete([]); // empty — tubes were already created per segment
+    }
+  }
+
   _complete() {
     const pts = this.points.slice();
     this._clearVisuals();
     this._clearHeightLine();
     this.points = [];
+    this.segmentNumber = 1;
     this.cursorMarker.visible = false;
     this._hideLengthOverlay();
     if (this.onComplete) {
@@ -285,6 +493,8 @@ export class ClickPlaceMode {
   }
 
   _cancel() {
+    this._waitingForContinue = false;
+    this._continuePoint = null;
     this._clearVisuals();
     this._clearHeightLine();
     this._hideLengthOverlay();
@@ -372,7 +582,18 @@ export class ClickPlaceMode {
       statusEl.textContent = 'Click to place points | F1/F2/F3 switch plane | Shift+drag height';
     } else {
       const length = this._getCurveLength(this.points);
-      statusEl.textContent = `${this.points.length} pts | ${(length * 1000).toFixed(0)}mm — Dbl-click/Enter finish | F1/F2/F3 plane | Shift+drag height | Esc cancel`;
+      let text = '';
+      if (this.maxLengthM > 0 && this.segmentNumber > 1) {
+        text += `Seg ${this.segmentNumber}: `;
+      }
+      text += `${this.points.length} pts | ${(length * 1000).toFixed(0)}mm`;
+      if (this.maxLengthM > 0) {
+        const maxMm = Math.round(this.maxLengthM * 1000);
+        const pct = Math.round((length / this.maxLengthM) * 100);
+        text += ` / ${maxMm}mm (${pct}%)`;
+      }
+      text += ' — Dbl-click/Enter finish | Esc cancel';
+      statusEl.textContent = text;
     }
   }
 
@@ -380,11 +601,33 @@ export class ClickPlaceMode {
     const overlay = document.getElementById('length-overlay');
     if (!overlay) return;
     if (points.length < 2) {
-      overlay.classList.remove('visible');
+      if (this.maxLengthM > 0 && this.segmentNumber > 1) {
+        // Show segment info even with < 2 points if we're on segment 2+
+        overlay.textContent = `Seg ${this.segmentNumber}: 0 / ${Math.round(this.maxLengthM * 1000)} mm`;
+        overlay.style.color = '';
+        overlay.classList.add('visible');
+      } else {
+        overlay.classList.remove('visible');
+      }
       return;
     }
     const length = this._getCurveLength(points);
-    overlay.textContent = `${(length * 1000).toFixed(0)} mm`;
+    const lengthMm = (length * 1000).toFixed(0);
+
+    if (this.maxLengthM > 0) {
+      const maxMm = Math.round(this.maxLengthM * 1000);
+      const pct = Math.round((length / this.maxLengthM) * 100);
+      let text = '';
+      if (this.segmentNumber > 1) {
+        text += `Seg ${this.segmentNumber}: `;
+      }
+      text += `${lengthMm} / ${maxMm} mm (${pct}%)`;
+      overlay.textContent = text;
+      overlay.style.color = pct > 100 ? '#ff4444' : pct > 90 ? '#ffaa44' : '';
+    } else {
+      overlay.textContent = `${lengthMm} mm`;
+      overlay.style.color = '';
+    }
     overlay.classList.add('visible');
   }
 
@@ -393,6 +636,7 @@ export class ClickPlaceMode {
     if (overlay) {
       overlay.classList.remove('visible');
       overlay.textContent = '';
+      overlay.style.color = '';
     }
   }
 

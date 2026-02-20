@@ -1,3 +1,5 @@
+import { getPresetList } from '../tube/FixturePresets.js';
+
 /**
  * Drawing tool toolbar with mode buttons.
  */
@@ -16,7 +18,11 @@ export class Toolbar {
     this.onDeleteTube = null;     // () => {}
     this.onDuplicateTube = null;  // () => {}
     this.onHelp = null;           // () => {}
+    this.onImportRef = null;       // () => {}
     this.onGridSizeChange = null; // (sizeM) => {}
+    this.onPresetChange = null;   // (presetId) => {}
+    this.onGroupTubes = null;     // () => {}
+    this.onUngroupTubes = null;   // () => {}
 
     this._build();
   }
@@ -29,7 +35,34 @@ export class Toolbar {
     this.selectBtn = this._addButton(drawGroup, 'select', 'Select / Move', this._selectIcon(), '1');
     this.clickPlaceBtn = this._addButton(drawGroup, 'click-place', 'Click Place', this._clickPlaceIcon(), '2');
     this.freehandBtn = this._addButton(drawGroup, 'freehand', 'Freehand Draw', this._freehandIcon(), '3');
+    this.rectangleBtn = this._addButton(drawGroup, 'rectangle', 'Rectangle', this._rectangleIcon(), '4');
+    this.circleBtn = this._addButton(drawGroup, 'circle', 'Circle', this._circleIcon(), '5');
+    this.cutBtn = this._addButton(drawGroup, 'cut', 'Cut Tube', this._cutIcon(), 'C');
     this.container.appendChild(drawGroup);
+
+    // Fixture Preset group
+    const presetGroup = this._createGroup();
+    const presetLabel = document.createElement('span');
+    presetLabel.className = 'toolbar-label';
+    presetLabel.textContent = 'Fixture:';
+    presetGroup.appendChild(presetLabel);
+    this._presetSelect = document.createElement('select');
+    this._presetSelect.className = 'prop-input';
+    this._presetSelect.style.width = '160px';
+    this._presetSelect.style.height = '26px';
+    this._presetSelect.style.fontSize = '11px';
+    for (const p of getPresetList()) {
+      const opt = document.createElement('option');
+      opt.value = p.id;
+      opt.textContent = p.label;
+      this._presetSelect.appendChild(opt);
+    }
+    this._presetSelect.value = 'custom';
+    this._presetSelect.addEventListener('change', () => {
+      if (this.onPresetChange) this.onPresetChange(this._presetSelect.value);
+    });
+    presetGroup.appendChild(this._presetSelect);
+    this.container.appendChild(presetGroup);
 
     // Edit group
     const editGroup = this._createGroup();
@@ -37,6 +70,10 @@ export class Toolbar {
     this.duplicateBtn.classList.remove('active');
     this.deleteBtn = this._addButton(editGroup, 'delete-tube', 'Delete Tube', this._deleteIcon(), 'Del');
     this.deleteBtn.classList.remove('active');
+    this.groupBtn = this._addButton(editGroup, 'group-tubes', 'Group Tubes', this._groupIcon(), 'Ctrl+G');
+    this.groupBtn.classList.remove('active');
+    this.ungroupBtn = this._addButton(editGroup, 'ungroup-tubes', 'Ungroup Tubes', this._ungroupIcon(), 'Ctrl+B');
+    this.ungroupBtn.classList.remove('active');
     this.container.appendChild(editGroup);
 
     // Options group
@@ -63,7 +100,8 @@ export class Toolbar {
     gridLabel.className = 'toolbar-label';
     gridLabel.textContent = 'Grid:';
     gridGroup.appendChild(gridLabel);
-    const gridSelect = document.createElement('select');
+    this._gridSelect = document.createElement('select');
+    const gridSelect = this._gridSelect;
     gridSelect.className = 'prop-input';
     gridSelect.style.width = '80px';
     gridSelect.style.height = '26px';
@@ -85,7 +123,8 @@ export class Toolbar {
     gridSelect.value = '2';
 
     // Custom input (hidden by default)
-    const customInput = document.createElement('input');
+    this._gridCustomInput = document.createElement('input');
+    const customInput = this._gridCustomInput;
     customInput.type = 'number';
     customInput.className = 'prop-input';
     customInput.style.width = '50px';
@@ -96,7 +135,8 @@ export class Toolbar {
     customInput.max = '200';
     customInput.placeholder = 'm';
 
-    const customUnit = document.createElement('span');
+    this._gridCustomUnit = document.createElement('span');
+    const customUnit = this._gridCustomUnit;
     customUnit.className = 'toolbar-label';
     customUnit.style.display = 'none';
     customUnit.textContent = 'm';
@@ -139,12 +179,14 @@ export class Toolbar {
     spacer.style.flex = '1';
     this.container.appendChild(spacer);
 
-    // File group (Save / Load)
+    // File group (Save / Load / Import Ref)
     const fileGroup = this._createGroup();
     this.saveBtn = this._addButton(fileGroup, 'save', 'Save Project', this._saveIcon(), 'Ctrl+S');
     this.saveBtn.classList.remove('active');
     this.loadBtn = this._addButton(fileGroup, 'load', 'Load Project', this._loadIcon(), 'Ctrl+O');
     this.loadBtn.classList.remove('active');
+    this.importRefBtn = this._addButton(fileGroup, 'import-ref', 'Import Reference Model', this._importRefIcon(), 'Ctrl+I');
+    this.importRefBtn.classList.remove('active');
     this.container.appendChild(fileGroup);
 
     // Export group
@@ -181,7 +223,7 @@ export class Toolbar {
     label.style.fontSize = '12px';
     label.style.letterSpacing = '1px';
     label.style.fontWeight = '600';
-    label.textContent = 'MAGICTOOLBOX NEONFLEXER Beta v1.0.1';
+    label.textContent = 'MAGICTOOLBOX NEONFLEXER Beta v1.2.0';
     branding.appendChild(label);
 
     this.container.appendChild(branding);
@@ -237,6 +279,18 @@ export class Toolbar {
       if (this.onDuplicateTube) this.onDuplicateTube();
       return;
     }
+    if (id === 'group-tubes') {
+      if (this.onGroupTubes) this.onGroupTubes();
+      return;
+    }
+    if (id === 'ungroup-tubes') {
+      if (this.onUngroupTubes) this.onUngroupTubes();
+      return;
+    }
+    if (id === 'import-ref') {
+      if (this.onImportRef) this.onImportRef();
+      return;
+    }
     if (id === 'help') {
       if (this.onHelp) this.onHelp();
       return;
@@ -260,7 +314,7 @@ export class Toolbar {
   }
 
   _setActive(id) {
-    const toolBtns = ['select', 'click-place', 'freehand'];
+    const toolBtns = ['select', 'click-place', 'freehand', 'rectangle', 'circle', 'cut'];
     for (const t of toolBtns) {
       const btn = this.container.querySelector(`[data-tool="${t}"]`);
       if (btn) btn.classList.toggle('active', t === id);
@@ -270,6 +324,27 @@ export class Toolbar {
   setTool(id) {
     this._setActive(id);
     this.currentTool = id;
+  }
+
+  setGridSize(sizeM) {
+    const standard = ['2', '5', '10', '20', '50'];
+    const strVal = String(sizeM);
+    if (standard.includes(strVal)) {
+      this._gridSelect.value = strVal;
+      this._gridCustomInput.style.display = 'none';
+      this._gridCustomUnit.style.display = 'none';
+    } else {
+      this._gridSelect.value = 'custom';
+      this._gridCustomInput.style.display = '';
+      this._gridCustomUnit.style.display = '';
+      this._gridCustomInput.value = sizeM;
+    }
+  }
+
+  setPreset(presetId) {
+    if (this._presetSelect) {
+      this._presetSelect.value = presetId;
+    }
   }
 
   setPlane(plane) {
@@ -324,5 +399,23 @@ export class Toolbar {
   }
   _loadIcon() {
     return `<svg viewBox="0 0 24 24"><path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2v11z" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M12 11v6m0-6l-3 3m3-3l3 3" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+  }
+  _importRefIcon() {
+    return `<svg viewBox="0 0 24 24"><path d="M21 16V8a2 2 0 00-1-1.73l-7-4a2 2 0 00-2 0l-7 4A2 2 0 003 8v8a2 2 0 001 1.73l7 4a2 2 0 002 0l7-4A2 2 0 0021 16z" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/><path d="M3.27 6.96L12 12.01l8.73-5.05M12 22.08V12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+  }
+  _rectangleIcon() {
+    return `<svg viewBox="0 0 24 24"><rect x="4" y="5" width="16" height="14" rx="1" fill="none" stroke="currentColor" stroke-width="1.5"/></svg>`;
+  }
+  _circleIcon() {
+    return `<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="1.5"/></svg>`;
+  }
+  _cutIcon() {
+    return `<svg viewBox="0 0 24 24"><circle cx="6" cy="6" r="3" fill="none" stroke="currentColor" stroke-width="1.5"/><circle cx="6" cy="18" r="3" fill="none" stroke="currentColor" stroke-width="1.5"/><line x1="8.5" y1="8" x2="20" y2="18" stroke="currentColor" stroke-width="1.5"/><line x1="8.5" y1="16" x2="20" y2="6" stroke="currentColor" stroke-width="1.5"/></svg>`;
+  }
+  _groupIcon() {
+    return `<svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1" fill="none" stroke="currentColor" stroke-width="1.5"/><rect x="14" y="14" width="7" height="7" rx="1" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M10 6.5h4M13.5 10v4M6.5 10v4M10 17.5h4" fill="none" stroke="currentColor" stroke-width="1.2" stroke-dasharray="2 1.5"/></svg>`;
+  }
+  _ungroupIcon() {
+    return `<svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1" fill="none" stroke="currentColor" stroke-width="1.5"/><rect x="14" y="14" width="7" height="7" rx="1" fill="none" stroke="currentColor" stroke-width="1.5"/><line x1="9" y1="15" x2="15" y2="9" stroke="currentColor" stroke-width="1.5"/></svg>`;
   }
 }

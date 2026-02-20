@@ -40,14 +40,16 @@ export class MVRExporter {
   /**
    * Export all tubes as MVR.
    * @param {import('../tube/TubeManager.js').TubeManager} tubeManager
+   * @param {import('../tube/ConnectorManager.js').ConnectorManager} [connectorManager]
    * @param {string} filename
    */
-  static async export(tubeManager, filename = 'NeonFlexDesign') {
+  static async export(tubeManager, connectorManager = null, filename = 'NeonFlexDesign') {
     const tubes = tubeManager.tubes.filter(t => t.isValid && t.group);
     if (tubes.length === 0) throw new Error('No tubes to export');
 
-    // 1. Build the GLB for tube bodies (no pixels)
-    const glbData = await this._exportBodiesGLB(tubes);
+    // 1. Build the GLB for tube bodies + connectors
+    const connectors = connectorManager ? connectorManager.connectors : [];
+    const glbData = await this._exportBodiesGLB(tubes, connectors);
 
     // 2. Check if any tube needs discrete pixel fixtures
     const hasDiscretePixels = tubes.some(t => t.pixelMode !== 'uv-mapped');
@@ -73,7 +75,7 @@ export class MVRExporter {
 
   // ─── GLB Export (tube bodies only) ──────────────────────────
 
-  static _exportBodiesGLB(tubes) {
+  static _exportBodiesGLB(tubes, connectors = []) {
     const scene = new THREE.Scene();
     const root = new THREE.Group();
     root.name = 'NeonFlexDesign';
@@ -95,6 +97,19 @@ export class MVRExporter {
         bodyClone.name = `Tube_${tube.id}_Body`;
         root.add(bodyClone);
       }
+    }
+
+    // Add connector meshes as static geometry
+    for (const conn of connectors) {
+      if (!conn.mesh) continue;
+      const connGeo = conn.mesh.geometry.clone();
+      const connMat = conn.mesh.material.clone();
+      connMat.name = `Connector_${conn.id}_Body`;
+      const connClone = new THREE.Mesh(connGeo, connMat);
+      connClone.name = `Connector_${conn.id}`;
+      connClone.position.copy(conn.mesh.position);
+      connClone.quaternion.copy(conn.mesh.quaternion);
+      root.add(connClone);
     }
 
     const exporter = new GLTFExporter();
@@ -128,17 +143,21 @@ export class MVRExporter {
 
     const length = CurveBuilder.getLength(curve);
     const totalPixels = Math.max(1, Math.round(length * tube.pixelsPerMeter));
+    const startPixel = tube.startPixel || 0;
+    const activePx = Math.max(1, totalPixels - startPixel);
+    const tOffset = startPixel / totalPixels; // curve position where active pixels begin
+
     const chPerPixel = Number(tube.dmxChannelsPerPixel) || 3;
     const maxPxPerPart = Math.floor(512 / chPerPixel);
-    const numParts = Math.ceil(totalPixels / maxPxPerPart);
+    const numParts = Math.ceil(activePx / maxPxPerPart);
 
     for (let p = 0; p < numParts; p++) {
-      const startPx = p * maxPxPerPart;
-      const endPx = Math.min(startPx + maxPxPerPart, totalPixels);
-      const partPx = endPx - startPx;
+      const partStartPx = p * maxPxPerPart;
+      const partEndPx = Math.min(partStartPx + maxPxPerPart, activePx);
+      const partPx = partEndPx - partStartPx;
 
-      const tStart = startPx / totalPixels;
-      const tEnd = endPx / totalPixels;
+      const tStart = tOffset + (partStartPx / totalPixels);
+      const tEnd = tOffset + (partEndPx / totalPixels);
 
       // Create sub-curve — TubeGeometry on this will have UVs 0→1 for this section
       const subCurve = new SubCurve(curve, tStart, tEnd);
@@ -149,7 +168,7 @@ export class MVRExporter {
       const mat = tube.bodyMesh.material.clone();
       const partLabel = numParts > 1
         ? `_PT${p + 1}_${partPx}px`
-        : `_${totalPixels}px`;
+        : `_${activePx}px`;
       mat.name = `${tube.name}_${tube.materialPreset}${partLabel}`;
 
       const mesh = new THREE.Mesh(partGeo, mat);
@@ -167,7 +186,9 @@ export class MVRExporter {
       const curve = CurveBuilder.build(tube.controlPoints, tube.tension, tube.closed);
       if (!curve) { result.push([]); continue; }
       const { points } = CurveBuilder.getPixelPoints(curve, tube.pixelsPerMeter);
-      result.push(points);
+      // Skip startPixel pixels from the beginning
+      const startPx = tube.startPixel || 0;
+      result.push(startPx > 0 ? points.slice(startPx) : points);
     }
     return result;
   }
@@ -294,6 +315,7 @@ export class MVRExporter {
       let absoluteAddr = (startUniverse - 1) * 512 + startAddress;
 
       // Build pixel fixtures (skip for uv-mapped tubes)
+      const pixelNameOffset = tube.startPixel || 0;
       let pixelFixtures = '';
       for (let pi = 0; pi < (tube.pixelMode === 'uv-mapped' ? 0 : pixels.length); pi++) {
         const pos = pixels[pi];
@@ -310,7 +332,7 @@ export class MVRExporter {
         }
 
         pixelFixtures += `
-            <Fixture name="${tubeName}_Pixel_${pi}" uuid="${uuid}">
+            <Fixture name="${tubeName}_Pixel_${pi + pixelNameOffset}" uuid="${uuid}">
               <Matrix>{1,0,0}{0,1,0}{0,0,1}{${x},${y},${z}}</Matrix>
               <GDTFSpec>GenericLED.gdtf</GDTFSpec>
               <GDTFMode>${gdtfMode}</GDTFMode>
