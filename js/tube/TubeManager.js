@@ -250,6 +250,60 @@ export class TubeManager {
   }
 
   /**
+   * Remove all tubes from the scene and reset state.
+   */
+  clearAll() {
+    for (const tube of this.tubes) {
+      this._disposeTubeMesh(tube);
+    }
+    this.tubes = [];
+    this.selectedTube = null;
+    if (this.onSelectionChanged) this.onSelectionChanged(null);
+  }
+
+  /**
+   * Serialize the current project to a plain object.
+   */
+  saveProject(sceneState) {
+    return {
+      format: 'neonflexer',
+      version: 1,
+      savedAt: new Date().toISOString(),
+      scene: sceneState,
+      tubes: this.tubes.map(t => t.toJSON()),
+    };
+  }
+
+  /**
+   * Load a project from a plain object, replacing all current tubes.
+   * @returns {{ gridSizeM: number, currentPlane: string }} scene state to restore
+   */
+  loadProject(data) {
+    if (!data || data.format !== 'neonflexer') {
+      throw new Error('Not a valid .neon project file');
+    }
+
+    this.clearAll();
+
+    let maxId = 0;
+    for (const tubeData of (data.tubes || [])) {
+      const tube = TubeModel.fromJSON(tubeData);
+      if (tube.id > maxId) maxId = tube.id;
+      this.tubes.push(tube);
+      this._buildTubeMesh(tube);
+      if (this.onTubeCreated) this.onTubeCreated(tube);
+    }
+
+    TubeModel.resetIdCounter(maxId);
+
+    if (this.tubes.length > 0) {
+      this.selectTube(this.tubes[0]);
+    }
+
+    return data.scene || {};
+  }
+
+  /**
    * Dispose of all tubes.
    */
   dispose() {

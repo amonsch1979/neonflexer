@@ -11,6 +11,8 @@ export class Toolbar {
     this.onSnapToggle = null;     // (enabled) => {}
     this.onPlaneChange = null;    // (plane) => {}
     this.onExport = null;         // () => {}
+    this.onSave = null;           // () => {}
+    this.onLoad = null;           // () => {}
     this.onDeleteTube = null;     // () => {}
     this.onDuplicateTube = null;  // () => {}
     this.onHelp = null;           // () => {}
@@ -137,6 +139,14 @@ export class Toolbar {
     spacer.style.flex = '1';
     this.container.appendChild(spacer);
 
+    // File group (Save / Load)
+    const fileGroup = this._createGroup();
+    this.saveBtn = this._addButton(fileGroup, 'save', 'Save Project', this._saveIcon(), 'Ctrl+S');
+    this.saveBtn.classList.remove('active');
+    this.loadBtn = this._addButton(fileGroup, 'load', 'Load Project', this._loadIcon(), 'Ctrl+O');
+    this.loadBtn.classList.remove('active');
+    this.container.appendChild(fileGroup);
+
     // Export group
     const exportGroup = this._createGroup();
     this.exportBtn = this._addButton(exportGroup, 'export', 'Export MVR', this._exportIcon(), 'Ctrl+E');
@@ -171,7 +181,7 @@ export class Toolbar {
     label.style.fontSize = '12px';
     label.style.letterSpacing = '1px';
     label.style.fontWeight = '600';
-    label.textContent = 'MAGICTOOLBOX NEONFLEXER Beta v1.0.0';
+    label.textContent = 'MAGICTOOLBOX NEONFLEXER Beta v1.0.1';
     branding.appendChild(label);
 
     this.container.appendChild(branding);
@@ -207,6 +217,14 @@ export class Toolbar {
   }
 
   _onButtonClick(id) {
+    if (id === 'save') {
+      if (this.onSave) this.onSave();
+      return;
+    }
+    if (id === 'load') {
+      if (this.onLoad) this.onLoad();
+      return;
+    }
     if (id === 'export') {
       if (this.onExport) this.onExport();
       return;
@@ -300,5 +318,11 @@ export class Toolbar {
   }
   _helpIcon() {
     return `<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" fill="none" stroke="currentColor" stroke-width="1.5"/><text x="12" y="17" font-size="14" font-weight="bold" fill="currentColor" text-anchor="middle" font-family="sans-serif">?</text></svg>`;
+  }
+  _saveIcon() {
+    return `<svg viewBox="0 0 24 24"><path d="M17 3H5a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2V7l-4-4z" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M7 3v5h8V3M7 21v-8h10v8" fill="none" stroke="currentColor" stroke-width="1.5"/></svg>`;
+  }
+  _loadIcon() {
+    return `<svg viewBox="0 0 24 24"><path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2v11z" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M12 11v6m0-6l-3 3m3-3l3 3" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
   }
 }

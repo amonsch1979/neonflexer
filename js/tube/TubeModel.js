@@ -124,6 +124,61 @@ export class TubeModel {
     });
   }
 
+  toJSON() {
+    return {
+      id: this.id,
+      name: this.name,
+      controlPoints: this.controlPoints.map(p => ({ x: p.x, y: p.y, z: p.z })),
+      tension: this.tension,
+      closed: this.closed,
+      profile: this.profile,
+      diameterMm: this.diameterMm,
+      widthMm: this.widthMm,
+      heightMm: this.heightMm,
+      wallThicknessMm: this.wallThicknessMm,
+      materialPreset: this.materialPreset,
+      pixelsPerMeter: this.pixelsPerMeter,
+      pixelColor: this.pixelColor,
+      pixelEmissive: this.pixelEmissive,
+      fixtureId: this.fixtureId,
+      dmxUniverse: this.dmxUniverse,
+      dmxChannelsPerPixel: this.dmxChannelsPerPixel,
+      dmxAddress: this.dmxAddress,
+      visible: this.visible,
+      color: this.color,
+    };
+  }
+
+  static fromJSON(data) {
+    const tube = new TubeModel({
+      name: data.name,
+      controlPoints: (data.controlPoints || []).map(p => new THREE.Vector3(p.x, p.y, p.z)),
+      tension: data.tension,
+      closed: data.closed,
+      profile: data.profile,
+      diameterMm: data.diameterMm,
+      widthMm: data.widthMm,
+      heightMm: data.heightMm,
+      wallThicknessMm: data.wallThicknessMm,
+      materialPreset: data.materialPreset,
+      pixelsPerMeter: data.pixelsPerMeter,
+      pixelColor: data.pixelColor,
+      pixelEmissive: data.pixelEmissive,
+      fixtureId: data.fixtureId,
+      dmxUniverse: data.dmxUniverse,
+      dmxChannelsPerPixel: data.dmxChannelsPerPixel,
+      dmxAddress: data.dmxAddress,
+      color: data.color,
+    });
+    if (data.id != null) tube.id = data.id;
+    if (data.visible != null) tube.visible = data.visible;
+    return tube;
+  }
+
+  static resetIdCounter(maxId) {
+    tubeIdCounter = maxId;
+  }
+
   _randomColor() {
     const colors = ['#00d4ff', '#ff44aa', '#44ff88', '#ffaa44', '#aa44ff', '#44aaff'];
     return colors[tubeIdCounter % colors.length];
