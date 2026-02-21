@@ -1,4 +1,4 @@
-# MAGICTOOLBOX NEONFLEXER — Beta v1.2.0
+# MAGICTOOLBOX NEONFLEXER — Beta v1.2.1
 
 3D NeonFlex LED tube designer for lighting professionals. Draw tubes in 3D, configure LED pixels, set DMX patch, and export as MVR for direct import into Capture, WYSIWYG, Depence, or any MVR-compatible visualizer.
 
@@ -66,11 +66,16 @@ The **Parts** info row in the Properties panel shows the breakdown before you ex
 - First cut on a closed tube opens it; second cut splits into two pieces
 - Both halves inherit all properties from the original
 
-### Reference Model Import
+### Reference Models
 - **Import** (`Ctrl+I`) — Load GLB, OBJ, 3DS, or MVR files as semi-transparent reference geometry
 - **MVR Import** — Parses MVR scene XML for correct placement of 3DS models (common from Capture)
 - **Auto-scale** — Detects mm/m scale mismatches and corrects automatically
 - **Snap to Ref** — Snap tube control points to the nearest surface of a reference model
+- **Trace Edges** — One-click "Trace Circle" or "Trace Rectangle" buttons generate a tube following the selected model's outline. Works correctly on rotated models.
+- **Isolation Mode** (`I`) — Solo the selected reference model(s) to work in a clean environment. Drawing auto-snaps to isolated models.
+- **Multi-select** — Click to select, Shift+Click to add, click empty space to deselect
+- **Marquee Select** — Alt+drag a rectangle in the viewport to select multiple models at once
+- **Smooth Shading** — Toggle to smooth hard edges on reference models for a cleaner look
 - **Ghost entries** — Saved projects remember ref model metadata; reimport the file to restore geometry
 
 ### Tube Grouping
@@ -84,6 +89,16 @@ The **Parts** info row in the Properties panel shows the breakdown before you ex
 - Pick the start pixel visually by hovering over pixels on a tube and clicking
 - Useful for offsetting the DMX start point along a tube
 
+### Undo / Redo
+- **Undo** (`Ctrl+Z`) and **Redo** (`Ctrl+Shift+Z` / `Ctrl+R`) for all tube and connector operations
+- Up to 50 undo steps
+
+### Camera Views
+- **Orthographic views** — Numpad `7` Top, `1` Front, `3` Right (hold Ctrl for opposite side), `0` Perspective
+- **View dropdown** in toolbar for quick view switching
+- **Focus selected** (`F`) — Zoom to and center on selected tube or reference model
+- **Auto-view** — Camera automatically orients when tracing or isolating reference models
+
 ### Tube Editing
 - Select and move entire tubes in 3D with transform gizmo
 - Move individual control points
@@ -95,6 +110,16 @@ The **Parts** info row in the Properties panel shows the breakdown before you ex
 - Save your full project as a `.neon` file (`Ctrl+S`)
 - Load projects back with all tube properties preserved (`Ctrl+O`)
 - Backward compatible — old .neon files load with default settings for new features
+
+### Command Panel
+- Press `P` to open a floating, draggable command pad with all available actions
+- Searchable — type to filter commands
+- Organized by category (View, Edit, Tube, Shapes, File, etc.)
+- Shows keyboard shortcuts for each command
+
+### Custom Fixture Presets
+- Create your own fixture presets with custom profile, pixel pitch, max length, and connector dimensions
+- Saved presets persist in the browser and appear in the toolbar dropdown alongside built-in presets
 
 ### Help Overlay
 Press `?` to see all keyboard shortcuts and mouse controls at a glance
@@ -125,6 +150,11 @@ Open in your browser: **[neonflexer.netlify.app](https://neonflexer.netlify.app/
 | `4` | Rectangle shape tool |
 | `5` | Circle shape tool |
 | `C` | Cut / Split tube tool |
+| `F` | Focus selected |
+| `I` | Toggle isolation mode |
+| `P` | Toggle command panel |
+| `Ctrl+Z` | Undo |
+| `Ctrl+Shift+Z` | Redo |
 | `Ctrl+D` | Duplicate selected tube |
 | `Ctrl+G` | Group selected tubes |
 | `Ctrl+B` | Ungroup selected tubes |
@@ -132,8 +162,11 @@ Open in your browser: **[neonflexer.netlify.app](https://neonflexer.netlify.app/
 | `G` | Toggle grid snap |
 | `H` | Toggle Y-axis on move gizmo |
 | `F1` `F2` `F3` | Switch drawing plane (XZ / XY / YZ) |
+| `Numpad 7/1/3` | Top / Front / Right view |
+| `Numpad 0` | Perspective view |
 | `Shift+Drag` | Adjust height off-plane |
-| `Shift/Ctrl+Click` | Multi-select tubes (in list panel) |
+| `Shift/Ctrl+Click` | Multi-select tubes or ref models |
+| `Alt+Drag` | Marquee select reference models |
 | `Enter` / `Dbl-Click` | Finish tube |
 | `Backspace` | Undo last point |
 | `Ctrl+S` | Save project |
@@ -141,7 +174,7 @@ Open in your browser: **[neonflexer.netlify.app](https://neonflexer.netlify.app/
 | `Ctrl+I` | Import reference model |
 | `Ctrl+E` | Export MVR |
 | `?` | Help overlay |
-| `Esc` | Cancel / close |
+| `Esc` | Cancel / exit isolation |
 
 ## Mouse Controls
 
@@ -186,6 +219,21 @@ Tube bodies are exported as **GLB meshes with clean 0→1 UV coordinates** along
 You can have some tubes in Discrete mode and others in UV Mapped mode in the same project. The MVR export handles both correctly — discrete tubes get fixture elements, UV-mapped tubes get clean mesh geometry only.
 
 ## Changelog
+
+### Beta v1.2.1 — Undo/Redo, Camera Views, Isolation Mode & Trace Edges
+- **Undo / Redo** — `Ctrl+Z` / `Ctrl+Shift+Z` for all tube and connector operations (up to 50 steps)
+- **Camera Views** — Numpad shortcuts for Top/Front/Right/Perspective views, plus a View dropdown in the toolbar
+- **Focus Selected** — Press `F` to zoom camera to selected tube or reference model
+- **Isolation Mode** — Press `I` to solo selected reference model(s). Drawing and shapes auto-snap to isolated models. Exit with `Esc` or `I`.
+- **Trace Edges** — One-click "Trace Circle" and "Trace Rectangle" in the properties panel to create a tube following a reference model's outline. Now works correctly on rotated and tilted models.
+- **Marquee Select** — `Alt+Drag` in the viewport to select multiple reference models at once
+- **Reference Model Deselection** — Click empty space or click a selected model again to deselect. Proper deselect when switching to tubes.
+- **Smooth Shading** — Toggle smooth edges on reference models in the properties panel
+- **Command Panel** — Press `P` for a floating, searchable command pad with all available actions
+- **Custom Fixture Presets** — Create and save your own fixture presets with custom profile, pixel pitch, and max length
+- **Loading Overlay** — Animated loading screen with progress bar during reference model imports
+- **Multi-object Import** — Models with multiple parts are automatically split into separate reference models
+- **OBB-based Snap** — Snap to Ref now uses oriented bounding boxes for correct projection on rotated models
 
 ### Beta v1.2.0 — Fixture Presets, Auto-Segmenting, Grouping & Reference Models
 - **Fixture Presets** — Toolbar dropdown for real-world NeonFlex products (LEDStructures LS360FLEX, Generic 60/30/144 px/m). Auto-fills profile, pixel pitch, DMX channels, max tube length.

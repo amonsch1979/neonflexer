@@ -318,6 +318,11 @@ export class ClickPlaceMode {
       this._cancel();
     } else if ((e.key === 'Backspace' || e.key === 'Delete') && !this._shiftDragging) {
       this._undoLastPoint();
+    } else if ((e.ctrlKey || e.metaKey) && (e.key === 'z' || e.key === 'Z') && !e.shiftKey) {
+      // Ctrl+Z while drawing = undo last point (not global undo)
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      this._undoLastPoint();
     }
   }
 

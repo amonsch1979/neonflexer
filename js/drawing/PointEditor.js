@@ -22,9 +22,16 @@ export class PointEditor {
     this._tubePivot = null;        // invisible Object3D that TransformControls attaches to
     this._tubeMoveStart = null;    // position at drag start
 
+    // Reference model selection
+    this.refModelManager = null;   // set by UIManager
+    this.onRefModelSelected = null; // (refModel) => {}
+    this.onRefModelShiftSelected = null; // (refModel) => {} — Shift+click multi-select
+    this.onDeselect = null;        // () => {} — click on empty space
+
     this.onPointMoved = null;    // (tubeModel) => {}
     this.onPointDeleted = null;  // (tubeModel) => {}
     this.onTubeMoved = null;     // (tubeModel) => {}
+    this.onBeforeMutate = null;  // () => {} — for undo capture before drag/delete
 
     this._onPointerDown = this._onMouseDown.bind(this);
     this._onKeyDown = this._onKeyDown.bind(this);
@@ -50,6 +57,10 @@ export class PointEditor {
     this.transformControls.addEventListener('dragging-changed', (e) => {
       this._isDragging = e.value;
       sceneManager.controls.enabled = !e.value;
+      // Capture undo state on drag start
+      if (e.value && this.onBeforeMutate) {
+        this.onBeforeMutate();
+      }
       // Rebuild on drag end for final update
       if (!e.value) {
         if (this._movingTube) {
@@ -67,6 +78,7 @@ export class PointEditor {
       } else {
         this._onTransformChangeLive();
       }
+      this.sceneManager.requestRender();
     });
   }
 
@@ -114,6 +126,27 @@ export class PointEditor {
           this._selectTubeForMove(tube);
         }
         return;
+      }
+    }
+
+    // Try to pick reference model
+    if (this.refModelManager) {
+      const refMeshes = this.refModelManager.getRefModelMeshes();
+      if (refMeshes.length > 0) {
+        const hits = this.sceneManager.raycastObjects(e.clientX, e.clientY, refMeshes);
+        if (hits.length > 0) {
+          const refModel = this.refModelManager.getModelByMesh(hits[0].object);
+          if (refModel) {
+            this._deselectAll(false); // deselect points/tubes but not ref models
+            // Shift+click → multi-select, normal click → single select
+            if (e.shiftKey && this.onRefModelShiftSelected) {
+              this.onRefModelShiftSelected(refModel);
+            } else if (this.onRefModelSelected) {
+              this.onRefModelSelected(refModel);
+            }
+            return;
+          }
+        }
       }
     }
 
@@ -253,12 +286,13 @@ export class PointEditor {
 
   // ── Deselect all ──────────────────────────────────────
 
-  _deselectAll() {
+  _deselectAll(includeRefModels = true) {
     this._deselectPoint();
     this._clearTubeMove();
     this.transformControls.detach();
     this.transformControls.visible = false;
     this.transformControls.enabled = false;
+    if (includeRefModels && this.onDeselect) this.onDeselect();
   }
 
   // ── Keyboard ──────────────────────────────────────────
@@ -277,6 +311,7 @@ export class PointEditor {
       // Don't allow deleting below 2 points
       if (tube.controlPoints.length <= 2) return;
 
+      if (this.onBeforeMutate) this.onBeforeMutate();
       this._deselectAll();
       tube.deletePoint(pointIndex);
       this.tubeManager.updateTube(tube);

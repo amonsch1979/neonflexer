@@ -30,6 +30,7 @@ export class DrawingManager {
 
     this.onDrawingComplete = null;   // () => {} — called after final tube is finished
     this.onSegmentCreated = null;    // (tube, segNum) => {} — called when mid-draw segment completes
+    this.onBeforeMutate = null;      // () => {} — called before any tube creation (for undo capture)
 
     this.clickPlaceMode.onComplete = (points) => {
       this._completeDraw(points);
@@ -62,6 +63,7 @@ export class DrawingManager {
    */
   _completeSegment(points, segNum) {
     if (points.length < 2) return;
+    if (this.onBeforeMutate) this.onBeforeMutate();
 
     const preset = this.activePreset;
     const presetId = this.activePresetId;
@@ -115,6 +117,7 @@ export class DrawingManager {
       if (this.onDrawingComplete) this.onDrawingComplete();
       return;
     }
+    if (this.onBeforeMutate) this.onBeforeMutate();
 
     const preset = this.activePreset;
     const presetId = this.activePresetId;

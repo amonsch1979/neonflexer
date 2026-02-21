@@ -1,0 +1,16 @@
+# Local Netlify folder
+.netlify
+
+# Test models
+3DMODELS/
+
+# Screenshots / example images
+EX1.jpg
+EX2.jpg
+EX3.jpg
+
+# Release archives
+*.zip
+
+# Claude Code
+.claude/

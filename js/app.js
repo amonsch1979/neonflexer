@@ -31,6 +31,15 @@ class App {
     if (statusEl) statusEl.textContent = 'Ready — Press 2 or select Click Place tool to start drawing';
 
     console.log('MAGICTOOLBOX NEONFLEXER initialized');
+
+    // Dismiss splash screen — hold for 2.5s then fade out over 1s
+    const splash = document.getElementById('splash-screen');
+    if (splash) {
+      setTimeout(() => {
+        splash.classList.add('fade-out');
+        setTimeout(() => splash.remove(), 1000);
+      }, 2500);
+    }
   }
 
   _setupKeyboardShortcuts() {
@@ -111,10 +120,37 @@ class App {
         return;
       }
 
+      // Undo: Ctrl+Z (skip global undo when drawing — click-place handles its own point undo)
+      if ((e.ctrlKey || e.metaKey) && (e.key === 'z' || e.key === 'Z') && !e.shiftKey) {
+        e.preventDefault();
+        if (this.drawingManager.currentMode === 'click-place' && this.drawingManager.clickPlaceMode.points.length > 0) {
+          return; // Let ClickPlaceMode's keydown handler undo the last point
+        }
+        this.uiManager.undo();
+        return;
+      }
+
+      // Redo: Ctrl+R or Ctrl+Shift+Z
+      if ((e.ctrlKey || e.metaKey) && (e.key === 'r' || e.key === 'R')) {
+        e.preventDefault();
+        this.uiManager.redo();
+        return;
+      }
+      if ((e.ctrlKey || e.metaKey) && (e.key === 'z' || e.key === 'Z') && e.shiftKey) {
+        e.preventDefault();
+        this.uiManager.redo();
+        return;
+      }
+
       // Delete selected tube: Delete/Backspace key (only in select mode)
       if ((e.key === 'Delete' || e.key === 'Backspace') && this.drawingManager.currentMode === 'select') {
         const tube = this.tubeManager.selectedTube;
         if (tube) {
+          this.uiManager.undoManager.capture();
+          // Also delete connectors linked to this tube
+          if (this.uiManager.connectorManager) {
+            this.uiManager.connectorManager.deleteConnectorsForTube(tube.id);
+          }
           this.tubeManager.deleteTube(tube);
         }
         return;
@@ -125,6 +161,7 @@ class App {
         e.preventDefault();
         const tube = this.tubeManager.selectedTube;
         if (tube) {
+          this.uiManager.undoManager.capture();
           this.tubeManager.duplicateTube(tube);
           const statusEl = document.getElementById('status-text');
           if (statusEl) statusEl.textContent = `Duplicated "${tube.name}"`;
@@ -160,6 +197,51 @@ class App {
         return;
       }
 
+      // Command Pad: P key (without Ctrl)
+      if ((e.key === 'p' || e.key === 'P') && !e.ctrlKey && !e.metaKey) {
+        this.uiManager.toggleCommandPanel();
+        return;
+      }
+
+      // Focus: F key (without Ctrl)
+      if ((e.key === 'f' || e.key === 'F') && !e.ctrlKey && !e.metaKey) {
+        this.uiManager.focusSelected();
+        return;
+      }
+
+      // Isolation: I key (without Ctrl)
+      if ((e.key === 'i' || e.key === 'I') && !e.ctrlKey && !e.metaKey) {
+        this.uiManager.toggleIsolation();
+        return;
+      }
+
+      // Numpad camera views (Blender-style)
+      if (e.code === 'Numpad7') {
+        e.preventDefault();
+        this.sceneManager.setCameraView(e.ctrlKey ? 'bottom' : 'top');
+        return;
+      }
+      if (e.code === 'Numpad1') {
+        e.preventDefault();
+        this.sceneManager.setCameraView(e.ctrlKey ? 'back' : 'front');
+        return;
+      }
+      if (e.code === 'Numpad3') {
+        e.preventDefault();
+        this.sceneManager.setCameraView(e.ctrlKey ? 'left' : 'right');
+        return;
+      }
+      if (e.code === 'Numpad0') {
+        e.preventDefault();
+        this.sceneManager.setCameraView('perspective');
+        return;
+      }
+      if (e.code === 'NumpadDecimal') {
+        e.preventDefault();
+        this.uiManager.focusSelected();
+        return;
+      }
+
       // Help: ?
       if (e.key === '?') {
         e.preventDefault();
@@ -167,16 +249,42 @@ class App {
         return;
       }
 
-      // Escape: cancel drawing / deselect / close help
+      // Escape: cancel drawing / deselect / close help / exit isolation
       if (e.key === 'Escape') {
         if (this.uiManager.helpVisible) {
           this.uiManager.toggleHelp();
+          return;
+        }
+        if (this.uiManager.isolationMode) {
+          this.uiManager.toggleIsolation();
           return;
         }
         if (this.drawingManager.currentMode !== 'select') {
           this.uiManager.setTool('select');
         }
         return;
+      }
+    });
+
+    // Alt+drag for marquee selection
+    const canvas = document.getElementById('viewport');
+    canvas.addEventListener('pointerdown', (e) => {
+      if (e.altKey && e.button === 0 && this.drawingManager.currentMode === 'select') {
+        e.preventDefault();
+        this.uiManager.activateMarquee();
+        // Re-dispatch the event on the marquee overlay so it starts drawing
+        setTimeout(() => {
+          const overlay = document.querySelector('.marquee-overlay');
+          if (overlay) {
+            const newEvent = new PointerEvent('pointerdown', {
+              clientX: e.clientX,
+              clientY: e.clientY,
+              button: 0,
+              bubbles: true,
+            });
+            overlay.dispatchEvent(newEvent);
+          }
+        }, 0);
       }
     });
   }

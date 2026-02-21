@@ -14,7 +14,9 @@ export class SceneManager {
       antialias: true,
       alpha: false
     });
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    this._fullPixelRatio = Math.min(window.devicePixelRatio, 2);
+    this._lowPixelRatio = Math.max(window.devicePixelRatio * 0.5, 0.5); // aggressive reduction during interaction
+    this.renderer.setPixelRatio(this._fullPixelRatio);
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
     this.renderer.toneMappingExposure = 1.0;
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
@@ -30,6 +32,7 @@ export class SceneManager {
     this.controls.dampingFactor = 0.08;
     this.controls.minDistance = 0.1;
     this.controls.maxDistance = 50;
+    this.controls.zoomToCursor = true;
     this.controls.target.set(0, 0, 0);
     // Middle mouse = orbit, right = pan (left freed for drawing tools)
     this.controls.mouseButtons = {
@@ -74,6 +77,9 @@ export class SceneManager {
     this.currentPlane = 'XZ';   // 'XZ' | 'XY' | 'YZ'
     this._planeAnchor = new THREE.Vector3(0, 0, 0); // plane passes through here
 
+    // Mathematical plane for reliable raycasting (no mesh edge cases)
+    this._mathPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+
     // Backward compat
     this.groundPlane = this._drawPlane;
 
@@ -84,6 +90,46 @@ export class SceneManager {
 
     // Apply initial plane
     this._applyPlaneOrientation();
+
+    // Interaction performance: reduce pixel ratio during orbit
+    this._interacting = false;
+    this._interactionTimer = null;
+    this._needsRender = true;        // dirty flag for render-on-demand
+
+    this.controls.addEventListener('start', () => {
+      if (!this._interacting) {
+        this._interacting = true;
+        this.renderer.setPixelRatio(this._lowPixelRatio);
+      }
+      clearTimeout(this._interactionTimer);
+      this._needsRender = true;
+    });
+    this.controls.addEventListener('end', () => {
+      clearTimeout(this._interactionTimer);
+      this._interactionTimer = setTimeout(() => {
+        this._interacting = false;
+        this.renderer.setPixelRatio(this._fullPixelRatio);
+        this._needsRender = true;
+      }, 200);
+    });
+    this.controls.addEventListener('change', () => {
+      this._needsRender = true;
+    });
+
+    // Camera animation state
+    this._cameraAnimating = false;
+    this._cameraAnimStart = 0;
+    this._cameraAnimDuration = 400;
+    this._cameraAnimFromPos = new THREE.Vector3();
+    this._cameraAnimToPos = new THREE.Vector3();
+    this._cameraAnimFromTarget = new THREE.Vector3();
+    this._cameraAnimToTarget = new THREE.Vector3();
+
+    // Any pointer activity on the canvas requests a render
+    // (covers drawing modes, tool previews, hover effects)
+    canvas.addEventListener('pointermove', () => { this._needsRender = true; });
+    canvas.addEventListener('pointerdown', () => { this._needsRender = true; });
+    canvas.addEventListener('pointerup', () => { this._needsRender = true; });
 
     // Raycaster
     this.raycaster = new THREE.Raycaster();
@@ -256,6 +302,10 @@ export class SceneManager {
    * @param {number} sizeM - total size (e.g., 2, 5, 10, 20)
    */
   setGridSize(sizeM) {
+    // Preserve camera position and target across grid rebuild
+    const savedPos = this.camera.position.clone();
+    const savedTarget = this.controls.target.clone();
+
     this.gridSizeM = sizeM;
     this._buildGrid(sizeM);
     // Also resize the draw plane
@@ -275,6 +325,17 @@ export class SceneManager {
     // Resize ground logo
     this._resizeGroundLogo(sizeM);
     this._applyPlaneOrientation();
+
+    // Scale camera limits to match grid size
+    this.controls.maxDistance = Math.max(50, sizeM * 2);
+    this.camera.far = Math.max(100, sizeM * 4);
+    this.camera.updateProjectionMatrix();
+
+    // Restore exact camera position and target
+    this.camera.position.copy(savedPos);
+    this.controls.target.copy(savedTarget);
+    this.controls.update();
+    this._needsRender = true;
   }
 
   _createPlaneHelper() {
@@ -365,6 +426,15 @@ export class SceneManager {
         break;
     }
 
+    // Update mathematical plane for raycasting
+    const normal = new THREE.Vector3();
+    switch (this.currentPlane) {
+      case 'XZ': normal.set(0, 1, 0); break;
+      case 'XY': normal.set(0, 0, 1); break;
+      case 'YZ': normal.set(1, 0, 0); break;
+    }
+    this._mathPlane.setFromNormalAndCoplanarPoint(normal, a);
+
     // Show helper for non-ground planes, or when anchor is off-origin
     const isDefault = this.currentPlane === 'XZ' && a.y === 0;
     helper.visible = !isDefault;
@@ -379,22 +449,363 @@ export class SceneManager {
     this.camera.aspect = w / h;
     this.camera.updateProjectionMatrix();
     this.renderer.setSize(w, h);
+    this._needsRender = true;
   }
 
   _animate() {
     requestAnimationFrame(this._animate);
+
+    // Camera animation
+    if (this._cameraAnimating) {
+      const elapsed = performance.now() - this._cameraAnimStart;
+      let t = Math.min(elapsed / this._cameraAnimDuration, 1);
+      // Ease-out cubic: 1 - (1-t)^3
+      t = 1 - Math.pow(1 - t, 3);
+
+      this.camera.position.lerpVectors(this._cameraAnimFromPos, this._cameraAnimToPos, t);
+      this.controls.target.lerpVectors(this._cameraAnimFromTarget, this._cameraAnimToTarget, t);
+
+      if (t >= 1) {
+        this._cameraAnimating = false;
+        this.controls.enabled = true;
+      }
+      this._needsRender = true;
+    }
+
+    // controls.update() handles damping and fires 'change' event
+    // which sets _needsRender via the event listener
     this.controls.update();
-    this.renderer.render(this.scene, this.camera);
+
+    if (this._needsRender) {
+      this.renderer.render(this.scene, this.camera);
+      this._needsRender = false;
+    }
   }
 
-  /** Raycast mouse against the current drawing plane */
+  /** Mark the scene as needing a re-render (call after any visual change). */
+  requestRender() {
+    this._needsRender = true;
+  }
+
+  /**
+   * Smoothly animate camera to a new position and target.
+   * @param {THREE.Vector3} position - target camera position
+   * @param {THREE.Vector3} target - target orbit target
+   * @param {number} duration - animation duration in ms (default 400)
+   */
+  animateCameraTo(position, target, duration = 400) {
+    this._cameraAnimFromPos.copy(this.camera.position);
+    this._cameraAnimToPos.copy(position);
+    this._cameraAnimFromTarget.copy(this.controls.target);
+    this._cameraAnimToTarget.copy(target);
+    this._cameraAnimDuration = duration;
+    this._cameraAnimStart = performance.now();
+    this._cameraAnimating = true;
+    this.controls.enabled = false;
+  }
+
+  /**
+   * Set camera to a fixed orthographic-style view.
+   * @param {'top'|'bottom'|'front'|'back'|'left'|'right'|'perspective'} viewName
+   * @param {boolean} animate - whether to animate (default true)
+   */
+  setCameraView(viewName, animate = true) {
+    const target = this.controls.target.clone();
+    const dist = this.camera.position.distanceTo(target);
+    let newPos;
+
+    switch (viewName) {
+      case 'top':
+        newPos = new THREE.Vector3(target.x, target.y + dist, target.z + 0.001);
+        break;
+      case 'bottom':
+        newPos = new THREE.Vector3(target.x, target.y - dist, target.z + 0.001);
+        break;
+      case 'front':
+        newPos = new THREE.Vector3(target.x, target.y, target.z + dist);
+        break;
+      case 'back':
+        newPos = new THREE.Vector3(target.x, target.y, target.z - dist);
+        break;
+      case 'right':
+        newPos = new THREE.Vector3(target.x + dist, target.y, target.z);
+        break;
+      case 'left':
+        newPos = new THREE.Vector3(target.x - dist, target.y, target.z);
+        break;
+      case 'perspective':
+      default:
+        newPos = new THREE.Vector3(1.5, 1.2, 1.5);
+        target.set(0, 0, 0);
+        break;
+    }
+
+    if (animate) {
+      this.animateCameraTo(newPos, target);
+    } else {
+      this.camera.position.copy(newPos);
+      this.controls.target.copy(target);
+      this.camera.lookAt(target);
+    }
+  }
+
+  /**
+   * Focus camera on a 3D object so it fills ~70% of the viewport.
+   * @param {THREE.Object3D} object3D
+   */
+  focusOnObject(object3D) {
+    const box = new THREE.Box3().setFromObject(object3D);
+    if (box.isEmpty()) return;
+
+    const center = new THREE.Vector3();
+    box.getCenter(center);
+    const size = new THREE.Vector3();
+    box.getSize(size);
+    const maxDim = Math.max(size.x, size.y, size.z);
+
+    // Calculate distance needed for ~70% viewport fill
+    const fov = this.camera.fov * (Math.PI / 180);
+    const fitDist = (maxDim / 2) / Math.tan(fov / 2) * 1.4;
+
+    // Keep the current camera direction
+    const dir = this.camera.position.clone().sub(this.controls.target).normalize();
+    const newPos = center.clone().add(dir.multiplyScalar(Math.max(fitDist, 0.5)));
+
+    this.animateCameraTo(newPos, center);
+  }
+
+  /**
+   * Focus on an object with auto-detected best camera view.
+   * Uses PCA on vertex positions to find the model's true flat plane,
+   * so rotated/tilted models are shown correctly planar.
+   * Falls back to AABB analysis for non-flat objects.
+   * @param {THREE.Object3D} object3D
+   * @returns {'top'|'front'|'right'|null} the view that was chosen
+   */
+  focusOnObjectWithAutoView(object3D) {
+    const box = new THREE.Box3().setFromObject(object3D);
+    if (box.isEmpty()) return null;
+
+    const center = new THREE.Vector3();
+    box.getCenter(center);
+    const size = new THREE.Vector3();
+    box.getSize(size);
+    const maxDim = Math.max(size.x, size.y, size.z);
+
+    // Calculate distance for ~70% viewport fill
+    const fov = this.camera.fov * (Math.PI / 180);
+    const fitDist = (maxDim / 2) / Math.tan(fov / 2) * 1.4;
+    const dist = Math.max(fitDist, 0.5);
+
+    // Try PCA to find the model's true flat direction (handles rotated models)
+    const flatNormal = this._computeFlatNormal(object3D, center);
+
+    let viewName;
+    let newPos;
+
+    if (flatNormal) {
+      // PCA found the flat direction — determine closest standard view
+      const ax = Math.abs(flatNormal.x);
+      const ay = Math.abs(flatNormal.y);
+      const az = Math.abs(flatNormal.z);
+
+      if (ay >= ax && ay >= az) {
+        viewName = 'top';
+      } else if (az >= ax && az >= ay) {
+        viewName = 'front';
+      } else {
+        viewName = 'right';
+      }
+    } else {
+      // Fallback: AABB-based approach for non-flat objects
+      if (size.y <= size.x && size.y <= size.z) {
+        viewName = 'top';
+      } else if (size.z <= size.x && size.z <= size.y) {
+        viewName = 'front';
+      } else {
+        viewName = 'right';
+      }
+    }
+
+    // Use clean axis-aligned camera positions for predictable views
+    switch (viewName) {
+      case 'top':
+        newPos = new THREE.Vector3(center.x, center.y + dist, center.z + 0.001);
+        break;
+      case 'front':
+        newPos = new THREE.Vector3(center.x, center.y, center.z + dist);
+        break;
+      case 'right':
+        newPos = new THREE.Vector3(center.x + dist, center.y, center.z);
+        break;
+    }
+
+    this.animateCameraTo(newPos, center);
+    return viewName;
+  }
+
+  /**
+   * Compute the normal of the model's flattest plane using PCA.
+   * Samples world-space vertices, computes the covariance matrix,
+   * and finds the eigenvector with the smallest eigenvalue (= thin axis).
+   * Returns null if model isn't clearly flat or has too few vertices.
+   * @param {THREE.Object3D} object3D
+   * @param {THREE.Vector3} center - world-space center
+   * @returns {THREE.Vector3|null}
+   */
+  _computeFlatNormal(object3D, center) {
+    // Sample world-space vertex positions (centered on centroid)
+    const sx = [], sy = [], sz = [];
+    const _v = new THREE.Vector3();
+
+    object3D.traverse(child => {
+      if (!child.isMesh || !child.geometry) return;
+      child.updateWorldMatrix(true, false);
+      const pos = child.geometry.attributes.position;
+      const step = Math.max(1, Math.floor(pos.count / 500));
+      for (let i = 0; i < pos.count; i += step) {
+        _v.fromBufferAttribute(pos, i);
+        _v.applyMatrix4(child.matrixWorld);
+        sx.push(_v.x - center.x);
+        sy.push(_v.y - center.y);
+        sz.push(_v.z - center.z);
+      }
+    });
+
+    const n = sx.length;
+    if (n < 10) return null;
+
+    // Compute 3x3 covariance matrix (symmetric)
+    let cxx = 0, cxy = 0, cxz = 0, cyy = 0, cyz = 0, czz = 0;
+    for (let i = 0; i < n; i++) {
+      cxx += sx[i] * sx[i]; cxy += sx[i] * sy[i]; cxz += sx[i] * sz[i];
+      cyy += sy[i] * sy[i]; cyz += sy[i] * sz[i]; czz += sz[i] * sz[i];
+    }
+    cxx /= n; cxy /= n; cxz /= n; cyy /= n; cyz /= n; czz /= n;
+
+    // Matrix-vector multiply helper for covariance matrix
+    const mulCov = (vx, vy, vz) => [
+      cxx * vx + cxy * vy + cxz * vz,
+      cxy * vx + cyy * vy + cyz * vz,
+      cxz * vx + cyz * vy + czz * vz
+    ];
+
+    // Power iteration: find largest eigenvector (e1)
+    let e1x = 1, e1y = 0.1, e1z = 0.1; // slight offset avoids axis-lock
+    for (let iter = 0; iter < 40; iter++) {
+      const [rx, ry, rz] = mulCov(e1x, e1y, e1z);
+      const len = Math.sqrt(rx * rx + ry * ry + rz * rz);
+      if (len < 1e-12) break;
+      e1x = rx / len; e1y = ry / len; e1z = rz / len;
+    }
+    const r1 = mulCov(e1x, e1y, e1z);
+    const lambda1 = e1x * r1[0] + e1y * r1[1] + e1z * r1[2];
+
+    if (lambda1 < 1e-10) return null;
+
+    // Deflate: C' = C - lambda1 * e1 * e1^T
+    const dxx = cxx - lambda1 * e1x * e1x;
+    const dxy = cxy - lambda1 * e1x * e1y;
+    const dxz = cxz - lambda1 * e1x * e1z;
+    const dyy = cyy - lambda1 * e1y * e1y;
+    const dyz = cyz - lambda1 * e1y * e1z;
+    const dzz = czz - lambda1 * e1z * e1z;
+
+    const mulDeflated = (vx, vy, vz) => [
+      dxx * vx + dxy * vy + dxz * vz,
+      dxy * vx + dyy * vy + dyz * vz,
+      dxz * vx + dyz * vy + dzz * vz
+    ];
+
+    // Power iteration on deflated matrix for second eigenvector (e2)
+    let e2x = 0, e2y = 1, e2z = 0.1;
+    // Ensure not parallel to e1
+    if (Math.abs(e1x * e2x + e1y * e2y + e1z * e2z) > 0.9) {
+      e2x = 0; e2y = 0.1; e2z = 1;
+    }
+    for (let iter = 0; iter < 40; iter++) {
+      const [rx, ry, rz] = mulDeflated(e2x, e2y, e2z);
+      const len = Math.sqrt(rx * rx + ry * ry + rz * rz);
+      if (len < 1e-12) break;
+      e2x = rx / len; e2y = ry / len; e2z = rz / len;
+    }
+
+    // Smallest eigenvector = cross product of the two largest
+    let nx = e1y * e2z - e1z * e2y;
+    let ny = e1z * e2x - e1x * e2z;
+    let nz = e1x * e2y - e1y * e2x;
+    const nLen = Math.sqrt(nx * nx + ny * ny + nz * nz);
+    if (nLen < 1e-10) return null;
+    nx /= nLen; ny /= nLen; nz /= nLen;
+
+    // Compute smallest eigenvalue to verify model is actually flat
+    const rn = mulCov(nx, ny, nz);
+    const lambdaMin = nx * rn[0] + ny * rn[1] + nz * rn[2];
+
+    // If smallest eigenvalue > 20% of largest, model isn't flat — use AABB fallback
+    if (lambdaMin / lambda1 > 0.2) return null;
+
+    // Choose sign: prefer direction where the dominant component is positive
+    // This gives natural top/front/right camera orientations
+    const ax = Math.abs(nx), ay = Math.abs(ny), az = Math.abs(nz);
+    if (ay >= ax && ay >= az) {
+      if (ny < 0) { nx = -nx; ny = -ny; nz = -nz; }
+    } else if (az >= ax && az >= ay) {
+      if (nz < 0) { nx = -nx; ny = -ny; nz = -nz; }
+    } else {
+      if (nx < 0) { nx = -nx; ny = -ny; nz = -nz; }
+    }
+
+    return new THREE.Vector3(nx, ny, nz);
+  }
+
+  /**
+   * Focus camera on all scene content (zoom extents).
+   */
+  focusAll() {
+    const box = new THREE.Box3();
+    this.scene.traverse(child => {
+      if (!child.isMesh && !child.isLine) return;
+      // Skip internal objects
+      if (child.name && child.name.startsWith('__')) return;
+      // Skip invisible
+      let visible = true;
+      let obj = child;
+      while (obj) {
+        if (!obj.visible) { visible = false; break; }
+        obj = obj.parent;
+      }
+      if (!visible) return;
+      box.expandByObject(child);
+    });
+
+    if (box.isEmpty()) return;
+
+    const center = new THREE.Vector3();
+    box.getCenter(center);
+    const size = new THREE.Vector3();
+    box.getSize(size);
+    const maxDim = Math.max(size.x, size.y, size.z);
+
+    const fov = this.camera.fov * (Math.PI / 180);
+    const fitDist = (maxDim / 2) / Math.tan(fov / 2) * 1.5;
+
+    const dir = this.camera.position.clone().sub(this.controls.target).normalize();
+    const newPos = center.clone().add(dir.multiplyScalar(Math.max(fitDist, 0.5)));
+
+    this.animateCameraTo(newPos, center);
+  }
+
+  /** Raycast mouse against the current drawing plane.
+   *  Uses mathematical plane intersection (not mesh raycast) for reliability —
+   *  no edge cases with camera angle, scene objects, or mesh bounds. */
   raycastDrawingPlane(clientX, clientY) {
     const rect = this.canvas.getBoundingClientRect();
     this.mouse.x = ((clientX - rect.left) / rect.width) * 2 - 1;
     this.mouse.y = -((clientY - rect.top) / rect.height) * 2 + 1;
     this.raycaster.setFromCamera(this.mouse, this.camera);
-    const hits = this.raycaster.intersectObject(this._drawPlane);
-    return hits.length > 0 ? hits[0].point.clone() : null;
+    const target = new THREE.Vector3();
+    return this.raycaster.ray.intersectPlane(this._mathPlane, target) ? target : null;
   }
 
   /** Backward compat alias */

@@ -3,23 +3,28 @@ import { CurveBuilder } from '../drawing/CurveBuilder.js';
 
 /**
  * Control points per meter of arc length for segment reconstruction.
- * Higher = more accurate arc length but more control points.
- * 10/m gives sub-mm accuracy on typical curves.
+ * Higher = more accurate rebuild but more control points.
+ * 200/m keeps CatmullRom rebuild error well under 0.1mm (~5mm spacing).
  */
-const POINTS_PER_METER = 10;
+const POINTS_PER_METER = 200;
 
 /**
- * Binary search tolerance — 0.5mm precision.
+ * Length tolerance — 0.3mm so rounding to integer mm always shows exact value.
  */
-const LENGTH_TOLERANCE_M = 0.0005;
+const LENGTH_TOLERANCE_M = 0.0003;
+
+/**
+ * Max correction iterations to hit exact target length.
+ */
+const MAX_CORRECTIONS = 24;
 
 /**
  * Auto-segments a tube path into multiple segments based on a maximum length,
  * inserting connector positions at each junction.
  *
  * Each segment (except possibly the last) will have exactly maxLengthM arc length
- * when rebuilt as a CatmullRom curve. Both segments meet at the connector center —
- * the connector visually covers the joint.
+ * when rebuilt as a CatmullRom curve. Uses direct arc-length parameterization
+ * with iterative correction for sub-mm precision.
  *
  * @param {THREE.Vector3[]} controlPoints - Original control points
  * @param {number} maxLengthM - Maximum length per segment in meters
@@ -40,9 +45,12 @@ export function autoSegment(controlPoints, maxLengthM, connectorHeightM = 0.03, 
   const totalLength = CurveBuilder.getLength(curve);
 
   // If total length fits in one segment, no splitting needed
-  if (totalLength <= maxLengthM) {
+  if (totalLength <= maxLengthM + LENGTH_TOLERANCE_M) {
     return { segments: [controlPoints], connectors: [] };
   }
+
+  // Pre-compute numPts for the target length — used consistently everywhere
+  const numPts = Math.max(15, Math.ceil(maxLengthM * POINTS_PER_METER));
 
   const segments = [];
   const connectors = [];
@@ -56,20 +64,20 @@ export function autoSegment(controlPoints, maxLengthM, connectorHeightM = 0.03, 
     const isLast = remainingArc <= maxLengthM + LENGTH_TOLERANCE_M;
 
     let segEndT;
+    let segNumPts;
     if (isLast) {
       segEndT = 1.0;
+      segNumPts = Math.max(15, Math.ceil(remainingArc * POINTS_PER_METER));
     } else {
-      // Binary search for the end T that produces a reconstructed segment
-      // of exactly maxLengthM arc length
-      segEndT = _findEndTForLength(curve, totalLength, currentT, maxLengthM, tension);
+      // Find the exact endT that produces a segment of maxLengthM
+      segEndT = _findExactEndT(curve, totalLength, currentT, maxLengthM, tension, numPts);
+      segNumPts = numPts; // same as used during correction
     }
 
-    // Sample control points for this segment
-    const segArc = (segEndT - currentT) * totalLength;
-    const numPts = Math.max(10, Math.ceil(segArc * POINTS_PER_METER));
+    // Sample control points for this segment using the SAME numPts as measurement
     const segPoints = [];
-    for (let i = 0; i <= numPts; i++) {
-      const t = currentT + (segEndT - currentT) * (i / numPts);
+    for (let i = 0; i <= segNumPts; i++) {
+      const t = currentT + (segEndT - currentT) * (i / segNumPts);
       segPoints.push(curve.getPointAt(Math.min(t, 1.0)));
     }
     segments.push(segPoints);
@@ -81,7 +89,6 @@ export function autoSegment(controlPoints, maxLengthM, connectorHeightM = 0.03, 
       connectors.push({ position: connPos, tangent: connTan });
 
       // Next segment starts at the SAME junction point (connector center).
-      // Both tubes meet at the connector — the connector mesh covers the joint.
       currentT = segEndT;
     } else {
       break;
@@ -92,47 +99,60 @@ export function autoSegment(controlPoints, maxLengthM, connectorHeightM = 0.03, 
 }
 
 /**
- * Binary search for endT such that the CatmullRom curve built from sampled
- * points between startT and endT has exactly targetLength arc length.
+ * Find endT using proportional correction with bisection safety bounds.
+ * Pure proportional correction can oscillate when CatmullRom rebuild
+ * introduces consistent length bias. Bisection bounds prevent overshoot
+ * and guarantee convergence.
  */
-function _findEndTForLength(curve, totalLength, startT, targetLength, tension) {
-  const tSpan = targetLength / totalLength;
+function _findExactEndT(curve, totalLength, startT, targetLength, tension, numPts) {
+  // Initial guess from arc-length parameterization
+  let endT = startT + targetLength / totalLength;
+  endT = Math.min(endT, 1.0);
 
-  // Search bounds: ±10% around the linear guess
-  let lo = startT + tSpan * 0.90;
-  let hi = Math.min(startT + tSpan * 1.10, 1.0);
+  // Bisection bounds — narrow on every iteration to prevent oscillation
+  let lowT = startT;
+  let highT = Math.min(1.0, startT + 2 * targetLength / totalLength);
 
-  for (let iter = 0; iter < 20; iter++) {
-    const mid = (lo + hi) / 2;
-    const len = _measureSegment(curve, totalLength, startT, mid, tension);
+  for (let iter = 0; iter < MAX_CORRECTIONS; iter++) {
+    const measured = _measureSegmentExact(curve, startT, endT, numPts, tension);
+    const error = measured - targetLength;
 
-    if (Math.abs(len - targetLength) < LENGTH_TOLERANCE_M) return mid;
+    // Within tolerance — done
+    if (Math.abs(error) < LENGTH_TOLERANCE_M) return endT;
 
-    if (len < targetLength) {
-      lo = mid;
+    // Tighten bisection bounds
+    if (error > 0) {
+      highT = endT; // segment too long — upper bound shrinks
     } else {
-      hi = mid;
+      lowT = endT;  // segment too short — lower bound grows
     }
+
+    // Proportional correction (fast convergence when it works)
+    const tSpan = endT - startT;
+    const correctionRatio = targetLength / measured;
+    let nextEndT = startT + tSpan * correctionRatio;
+
+    // If proportional step escapes bisection bounds, fall back to bisection midpoint
+    if (nextEndT <= lowT || nextEndT >= highT) {
+      nextEndT = (lowT + highT) / 2;
+    }
+
+    endT = Math.min(nextEndT, 1.0);
   }
 
-  return (lo + hi) / 2;
+  return endT;
 }
 
 /**
- * Build a CatmullRom from sampled points and measure its arc length.
- * This mirrors exactly how TubeManager builds the tube curve, so the
- * measured length will match what the UI displays.
+ * Measure a segment using CurveBuilder — the EXACT same code path as the UI display.
+ * This guarantees the measured length here matches what TubeListPanel.getTubeLength() shows.
  */
-function _measureSegment(curve, totalLength, startT, endT, tension) {
-  const segArc = (endT - startT) * totalLength;
-  const numPts = Math.max(10, Math.ceil(segArc * POINTS_PER_METER));
+function _measureSegmentExact(curve, startT, endT, numPts, tension) {
   const points = [];
   for (let i = 0; i <= numPts; i++) {
     const t = startT + (endT - startT) * (i / numPts);
     points.push(curve.getPointAt(Math.min(t, 1.0)));
   }
-  const segCurve = new THREE.CatmullRomCurve3(points, false, 'catmullrom', tension);
-  // Scale arcLengthDivisions to match CurveBuilder.getLength for consistent measurement
-  segCurve.arcLengthDivisions = Math.max(200, points.length * 10);
-  return segCurve.getLength();
+  const segCurve = CurveBuilder.build(points, tension, false);
+  return CurveBuilder.getLength(segCurve);
 }

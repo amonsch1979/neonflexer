@@ -2,15 +2,29 @@ import * as THREE from 'three';
 import { CurveBuilder } from '../drawing/CurveBuilder.js';
 import { TubeMaterialFactory } from './TubeMaterialFactory.js';
 
+// Shared sphere geometry for all pixel instances (one allocation)
+let _sharedPixelGeo = null;
+function getSharedGeo(pixelSize) {
+  // Recreate if size changed significantly
+  if (!_sharedPixelGeo || Math.abs(_sharedPixelGeo.parameters.radius - pixelSize) > 0.0001) {
+    if (_sharedPixelGeo) _sharedPixelGeo.dispose();
+    _sharedPixelGeo = new THREE.SphereGeometry(pixelSize, 8, 8);
+  }
+  return _sharedPixelGeo;
+}
+
+const _matrix = new THREE.Matrix4();
+
 /**
- * Places individual pixel meshes along a tube's curve center.
+ * Places pixel instances along a tube's curve center using InstancedMesh.
+ * Single draw call per tube instead of one per pixel.
  */
 export class PixelDistributor {
   /**
-   * Create pixel meshes distributed along a curve.
+   * Create an InstancedMesh of pixels distributed along a curve.
    * @param {THREE.CatmullRomCurve3} curve
    * @param {import('./TubeModel.js').TubeModel} tubeModel
-   * @returns {THREE.Group} group of pixel meshes
+   * @returns {THREE.Group} group containing a single InstancedMesh
    */
   static distribute(curve, tubeModel) {
     const group = new THREE.Group();
@@ -29,17 +43,19 @@ export class PixelDistributor {
     // Pixel size = 30% of inner radius
     const pixelSize = Math.max(0.001, tubeModel.innerRadius * 0.3);
     const pixelMaterial = TubeMaterialFactory.createPixelMaterial(tubeModel.pixelColor, tubeModel.pixelEmissive);
-
-    // Use small sphere geometry for each pixel
     const pixelGeo = new THREE.SphereGeometry(pixelSize, 8, 8);
 
-    for (let i = 0; i < activePoints.length; i++) {
-      const mesh = new THREE.Mesh(pixelGeo, pixelMaterial);
-      mesh.position.copy(activePoints[i]);
-      mesh.name = `Pixel_${tubeModel.id}_${startPx + i}`;
-      group.add(mesh);
-    }
+    // Single InstancedMesh for all pixels — one draw call
+    const instancedMesh = new THREE.InstancedMesh(pixelGeo, pixelMaterial, activePoints.length);
+    instancedMesh.name = `Tube_${tubeModel.id}_PixelsInstanced`;
 
+    for (let i = 0; i < activePoints.length; i++) {
+      _matrix.makeTranslation(activePoints[i].x, activePoints[i].y, activePoints[i].z);
+      instancedMesh.setMatrixAt(i, _matrix);
+    }
+    instancedMesh.instanceMatrix.needsUpdate = true;
+
+    group.add(instancedMesh);
     return group;
   }
 
@@ -59,19 +75,10 @@ export class PixelDistributor {
    */
   static dispose(group) {
     if (!group) return;
-    // Shared geometry and material - just dispose once
-    let disposedGeo = false;
-    let disposedMat = false;
     group.traverse(child => {
-      if (child.isMesh) {
-        if (!disposedGeo && child.geometry) {
-          child.geometry.dispose();
-          disposedGeo = true;
-        }
-        if (!disposedMat && child.material) {
-          child.material.dispose();
-          disposedMat = true;
-        }
+      if (child.isInstancedMesh || child.isMesh) {
+        child.geometry?.dispose();
+        child.material?.dispose();
       }
     });
     group.clear();

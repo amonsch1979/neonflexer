@@ -80,25 +80,45 @@ export class GLBExporter {
         tubeGroup.add(bodyClone);
       }
 
-      // Deep clone pixel group
+      // Deep clone pixel group (handles both InstancedMesh and legacy Mesh children)
       if (tube.pixelGroup) {
         const pixelGroupClone = new THREE.Group();
         pixelGroupClone.name = `Tube_${tube.id}_Pixels`;
 
-        const pixelMat = tube.pixelGroup.children[0]?.material?.clone();
-        if (pixelMat) pixelMat.name = `${tube.name}_Pixel_Emissive`;
+        const firstChild = tube.pixelGroup.children[0];
 
-        tube.pixelGroup.children.forEach((pixel, i) => {
-          if (pixel.isMesh) {
-            const pixelClone = new THREE.Mesh(
-              pixel.geometry.clone(),
-              pixelMat || pixel.material.clone()
-            );
-            pixelClone.position.copy(pixel.position);
+        if (firstChild && firstChild.isInstancedMesh) {
+          // InstancedMesh: extract individual meshes for GLB export
+          const pixelMat = firstChild.material.clone();
+          pixelMat.name = `${tube.name}_Pixel_Emissive`;
+          const mat4 = new THREE.Matrix4();
+          const pos = new THREE.Vector3();
+
+          for (let i = 0; i < firstChild.count; i++) {
+            firstChild.getMatrixAt(i, mat4);
+            pos.setFromMatrixPosition(mat4);
+            const pixelClone = new THREE.Mesh(firstChild.geometry.clone(), pixelMat);
+            pixelClone.position.copy(pos);
             pixelClone.name = `Pixel_${tube.id}_${i}`;
             pixelGroupClone.add(pixelClone);
           }
-        });
+        } else {
+          // Legacy: individual mesh children
+          const pixelMat = firstChild?.material?.clone();
+          if (pixelMat) pixelMat.name = `${tube.name}_Pixel_Emissive`;
+
+          tube.pixelGroup.children.forEach((pixel, i) => {
+            if (pixel.isMesh) {
+              const pixelClone = new THREE.Mesh(
+                pixel.geometry.clone(),
+                pixelMat || pixel.material.clone()
+              );
+              pixelClone.position.copy(pixel.position);
+              pixelClone.name = `Pixel_${tube.id}_${i}`;
+              pixelGroupClone.add(pixelClone);
+            }
+          });
+        }
 
         tubeGroup.add(pixelGroupClone);
       }

@@ -27,7 +27,8 @@ export class ShapeMode {
     this.active = true;
     this._anchor = null;
     this._clearVisuals();
-    this.sceneManager.resetPlaneAnchor();
+    // Do NOT reset plane anchor — UIManager sets the correct elevation
+    // (e.g. model top in isolation mode)
     const canvas = this.sceneManager.canvas;
     canvas.addEventListener('pointermove', this._onPointerMove);
     canvas.addEventListener('pointerdown', this._onPointerDown);

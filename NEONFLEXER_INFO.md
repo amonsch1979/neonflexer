@@ -1,4 +1,4 @@
-# MAGICTOOLBOX NEONFLEXER — Beta v1.2.0
+# MAGICTOOLBOX NEONFLEXER — Beta v1.2.1
 
 ## 3D NeonFlex LED Tube Designer with MVR Export
 
@@ -16,7 +16,7 @@ https://neonflexer.netlify.app/
 
 ## Download for Offline Use
 
-1. Unzip the provided NEONFLEXER_v1.2.0.zip
+1. Unzip the provided NEONFLEXER_v1.2.1.zip
 2. Double-click **NEONFLEXER.bat** (Windows)
 3. The app opens in your browser — no install required
 

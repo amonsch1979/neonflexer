@@ -11,13 +11,16 @@ export class PropertiesPanel {
   constructor(containerEl) {
     this.container = containerEl;
     this.currentTube = null;
+    this.currentTubes = [];          // all selected tubes (for batch)
     this.currentRefModel = null;
-    this.onPropertyChange = null;   // (tubeModel, propName) => {}
-    this.onRefModelChange = null;   // (refModel, propName) => {}
-    this.onRefModelRemove = null;   // (refModel) => {}
-    this.onSnapToRef = null;        // (tube) => {}
-    this.onPickStartPixel = null;   // (tube) => {}
-    this.hasRefModels = false;      // set by UIManager when ref models exist
+    this.onPropertyChange = null;    // (tubeModel, propName) => {}
+    this.onBatchPropertyChange = null; // (tubes[], propName) => {}
+    this.onRefModelChange = null;    // (refModel, propName) => {}
+    this.onRefModelRemove = null;    // (refModel) => {}
+    this.onSnapToRef = null;         // (tube) => {}
+    this.onPickStartPixel = null;    // (tube) => {}
+    this.onTraceRef = null;          // (shapeType) => {} — 'circle' | 'rectangle'
+    this.hasRefModels = false;       // set by UIManager when ref models exist
 
     this._showEmpty();
   }
@@ -41,6 +44,20 @@ export class PropertiesPanel {
       this.currentTube = item;
       this._build();
     }
+  }
+
+  /**
+   * Show batch properties for multiple selected tubes.
+   */
+  showMulti(tubes) {
+    this.currentTube = null;
+    this.currentRefModel = null;
+    this.currentTubes = tubes || [];
+    if (this.currentTubes.length < 2) {
+      this.show(this.currentTubes[0] || null);
+      return;
+    }
+    this._buildMulti();
   }
 
   _showEmpty() {
@@ -512,6 +529,245 @@ export class PropertiesPanel {
     }
   }
 
+  _emitBatch(propName) {
+    if (this.onBatchPropertyChange && this.currentTubes.length > 0) {
+      this.onBatchPropertyChange(this.currentTubes, propName);
+    }
+  }
+
+  /**
+   * Get a value across multiple tubes — returns value if all same, null if mixed.
+   */
+  _getMixedValue(tubes, prop) {
+    const vals = new Set(tubes.map(t => t[prop]));
+    return vals.size === 1 ? tubes[0][prop] : null;
+  }
+
+  /**
+   * Build batch-edit properties UI for multiple selected tubes.
+   */
+  _buildMulti() {
+    const tubes = this.currentTubes;
+    this.container.innerHTML = '';
+
+    // Header
+    const headerGroup = this._group(`${tubes.length} Tubes Selected`);
+    const headerInfo = document.createElement('div');
+    headerInfo.style.fontSize = '11px';
+    headerInfo.style.color = 'var(--text-secondary)';
+    headerInfo.style.marginBottom = '4px';
+    headerInfo.textContent = 'Changes apply to all selected tubes';
+    headerGroup.appendChild(headerInfo);
+    this.container.appendChild(headerGroup);
+
+    // Fixture Preset
+    const presetGroup = this._group('Fixture Preset');
+    const presetOptions = getPresetList().map(p => ({
+      value: p.id,
+      label: p.label,
+    }));
+    const mixedPreset = this._getMixedValue(tubes, 'fixturePreset');
+    this._row(presetGroup, 'Preset', this._select(
+      presetOptions,
+      mixedPreset || 'custom',
+      (val) => {
+        const preset = getPresetById(val);
+        for (const tube of tubes) {
+          tube.fixturePreset = val;
+          if (preset) {
+            if (preset.profile != null) tube.profile = preset.profile;
+            if (preset.diameterMm != null) tube.diameterMm = preset.diameterMm;
+            if (preset.pixelsPerMeter != null) tube.pixelsPerMeter = preset.pixelsPerMeter;
+            if (preset.dmxChannelsPerPixel != null) tube.dmxChannelsPerPixel = preset.dmxChannelsPerPixel;
+            if (preset.materialPreset != null) tube.materialPreset = preset.materialPreset;
+          }
+        }
+        this._emitBatch('fixturePreset');
+        this._buildMulti();
+      }
+    ));
+    this.container.appendChild(presetGroup);
+
+    // Cross Section
+    const csGroup = this._group('Cross Section');
+    const mixedProfile = this._getMixedValue(tubes, 'profile');
+    this._row(csGroup, 'Profile', this._select(
+      [
+        { value: 'round', label: 'Round' },
+        { value: 'square', label: 'Square' },
+        { value: 'rect', label: 'Rectangular' },
+      ],
+      mixedProfile || 'round',
+      (val) => {
+        for (const tube of tubes) tube.profile = val;
+        this._emitBatch('profile');
+        this._buildMulti();
+      }
+    ));
+
+    const effectiveProfile = mixedProfile || tubes[0].profile;
+    if (effectiveProfile === 'round' || effectiveProfile === 'square') {
+      const mixedDia = this._getMixedValue(tubes, 'diameterMm');
+      this._row(csGroup, 'Diameter', this._numberInput(
+        mixedDia != null ? mixedDia : tubes[0].diameterMm,
+        4, 50, 0.5, mixedDia == null ? '(mixed)' : 'mm',
+        (val) => {
+          for (const tube of tubes) tube.diameterMm = val;
+          this._emitBatch('diameterMm');
+        }
+      ));
+    } else {
+      const mixedW = this._getMixedValue(tubes, 'widthMm');
+      this._row(csGroup, 'Width', this._numberInput(
+        mixedW != null ? mixedW : tubes[0].widthMm,
+        3, 30, 0.5, mixedW == null ? '(mixed)' : 'mm',
+        (val) => {
+          for (const tube of tubes) tube.widthMm = val;
+          this._emitBatch('widthMm');
+        }
+      ));
+      const mixedH = this._getMixedValue(tubes, 'heightMm');
+      this._row(csGroup, 'Height', this._numberInput(
+        mixedH != null ? mixedH : tubes[0].heightMm,
+        4, 40, 0.5, mixedH == null ? '(mixed)' : 'mm',
+        (val) => {
+          for (const tube of tubes) tube.heightMm = val;
+          this._emitBatch('heightMm');
+        }
+      ));
+    }
+    this.container.appendChild(csGroup);
+
+    // Material
+    const matGroup = this._group('Material');
+    const matOptions = TubeMaterialFactory.getPresetNames().map(n => ({
+      value: n,
+      label: TubeMaterialFactory.getPresetLabel(n),
+    }));
+    const mixedMat = this._getMixedValue(tubes, 'materialPreset');
+    this._row(matGroup, 'Preset', this._select(matOptions, mixedMat || tubes[0].materialPreset, (val) => {
+      for (const tube of tubes) tube.materialPreset = val;
+      this._emitBatch('materialPreset');
+    }));
+    this.container.appendChild(matGroup);
+
+    // Pixels
+    const pxGroup = this._group('Pixels');
+    const mixedPpm = this._getMixedValue(tubes, 'pixelsPerMeter');
+    const pitchOptions = Object.entries(PIXEL_PITCH_PRESETS).map(([, p]) => ({
+      value: String(p.pixelsPerMeter),
+      label: p.label,
+    }));
+    pitchOptions.push({ value: 'custom', label: 'Custom...' });
+    const ppmVal = mixedPpm != null ? String(mixedPpm) : String(tubes[0].pixelsPerMeter);
+    const isPpmPreset = pitchOptions.some(o => o.value === ppmVal);
+
+    this._row(pxGroup, 'Pitch', this._select(
+      pitchOptions,
+      isPpmPreset ? ppmVal : 'custom',
+      (val) => {
+        if (val !== 'custom') {
+          const ppm = parseInt(val);
+          for (const tube of tubes) tube.pixelsPerMeter = ppm;
+          this._emitBatch('pixelsPerMeter');
+          this._buildMulti();
+        }
+      }
+    ));
+
+    if (!isPpmPreset) {
+      this._row(pxGroup, 'px/m', this._numberInput(
+        mixedPpm != null ? mixedPpm : tubes[0].pixelsPerMeter,
+        1, 500, 1, mixedPpm == null ? '(mixed)' : '',
+        (val) => {
+          const ppm = Math.round(val);
+          for (const tube of tubes) tube.pixelsPerMeter = ppm;
+          this._emitBatch('pixelsPerMeter');
+        }
+      ));
+    }
+
+    // Ch/Pixel
+    const mixedCh = this._getMixedValue(tubes, 'dmxChannelsPerPixel');
+    this._row(pxGroup, 'Ch/Pixel', this._select(
+      [
+        { value: '3', label: 'RGB (3ch)' },
+        { value: '4', label: 'RGBW (4ch)' },
+      ],
+      mixedCh != null ? String(mixedCh) : String(tubes[0].dmxChannelsPerPixel),
+      (val) => {
+        const ch = parseInt(val);
+        for (const tube of tubes) tube.dmxChannelsPerPixel = ch;
+        this._emitBatch('dmxChannelsPerPixel');
+      }
+    ));
+
+    // Pixel color + emissive (discrete mode)
+    const mixedMode = this._getMixedValue(tubes, 'pixelMode');
+    const isAllDiscrete = mixedMode === 'discrete' || (mixedMode == null && tubes.every(t => (t.pixelMode || 'discrete') === 'discrete'));
+    if (isAllDiscrete) {
+      const mixedColor = this._getMixedValue(tubes, 'pixelColor');
+      this._row(pxGroup, 'Color', this._colorInput(mixedColor || tubes[0].pixelColor, (val) => {
+        for (const tube of tubes) tube.pixelColor = val;
+        this._emitBatch('pixelColor');
+      }));
+
+      const mixedEmissive = this._getMixedValue(tubes, 'pixelEmissive');
+      const emRow = document.createElement('div');
+      emRow.className = 'toggle-row';
+      const emLabel = document.createElement('span');
+      emLabel.className = 'prop-label';
+      emLabel.textContent = 'Emissive';
+      emRow.appendChild(emLabel);
+      const emToggle = document.createElement('label');
+      emToggle.className = 'toggle-switch';
+      const emCb = document.createElement('input');
+      emCb.type = 'checkbox';
+      emCb.checked = mixedEmissive != null ? mixedEmissive : tubes[0].pixelEmissive;
+      emCb.addEventListener('change', () => {
+        for (const tube of tubes) tube.pixelEmissive = emCb.checked;
+        this._emitBatch('pixelEmissive');
+      });
+      const emSlider = document.createElement('span');
+      emSlider.className = 'toggle-slider';
+      emToggle.appendChild(emCb);
+      emToggle.appendChild(emSlider);
+      emRow.appendChild(emToggle);
+      pxGroup.appendChild(emRow);
+    }
+
+    this.container.appendChild(pxGroup);
+
+    // Curve
+    const curveGroup = this._group('Curve');
+    const mixedTension = this._getMixedValue(tubes, 'tension');
+    this._row(curveGroup, 'Tension', this._numberInput(
+      mixedTension != null ? mixedTension : tubes[0].tension,
+      0, 1, 0.05, mixedTension == null ? '(mixed)' : '',
+      (val) => {
+        for (const tube of tubes) tube.tension = val;
+        this._emitBatch('tension');
+      }
+    ));
+    this.container.appendChild(curveGroup);
+
+    // Tools (snap to ref)
+    if (this.hasRefModels) {
+      const toolsGroup = this._group('Tools');
+      const snapBtn = document.createElement('button');
+      snapBtn.className = 'btn btn-block';
+      snapBtn.textContent = 'Snap All to Ref';
+      snapBtn.title = 'Project all selected tubes onto nearest reference model surface';
+      snapBtn.addEventListener('click', () => {
+        for (const tube of tubes) {
+          if (this.onSnapToRef) this.onSnapToRef(tube);
+        }
+      });
+      toolsGroup.appendChild(snapBtn);
+      this.container.appendChild(toolsGroup);
+    }
+  }
+
   _emitRef(propName) {
     if (this.onRefModelChange && this.currentRefModel) {
       this.onRefModelChange(this.currentRefModel, propName);
@@ -607,6 +863,30 @@ export class PropertiesPanel {
     wireRow.appendChild(wireToggle);
     displayGroup.appendChild(wireRow);
 
+    // Clean Edges toggle (smooth shading — hides hard edges)
+    const smoothRow = document.createElement('div');
+    smoothRow.className = 'toggle-row';
+    const smoothLabel = document.createElement('span');
+    smoothLabel.className = 'prop-label';
+    smoothLabel.textContent = 'Clean Edges';
+    smoothLabel.title = 'Smooth shading to hide hard edges for a cleaner look';
+    smoothRow.appendChild(smoothLabel);
+    const smoothToggle = document.createElement('label');
+    smoothToggle.className = 'toggle-switch';
+    const smoothCb = document.createElement('input');
+    smoothCb.type = 'checkbox';
+    smoothCb.checked = ref.smoothEdges;
+    smoothCb.addEventListener('change', () => {
+      ref.smoothEdges = smoothCb.checked;
+      this._emitRef('smoothEdges');
+    });
+    const smoothSlider = document.createElement('span');
+    smoothSlider.className = 'toggle-slider';
+    smoothToggle.appendChild(smoothCb);
+    smoothToggle.appendChild(smoothSlider);
+    smoothRow.appendChild(smoothToggle);
+    displayGroup.appendChild(smoothRow);
+
     this.container.appendChild(displayGroup);
 
     // Transform
@@ -649,6 +929,40 @@ export class PropertiesPanel {
     }));
 
     this.container.appendChild(xformGroup);
+
+    // Trace Ref — one-click tube creation from model outline
+    if (ref.group && !ref.needsReimport) {
+      const traceGroup = this._group('Trace Edges');
+      const traceHint = document.createElement('div');
+      traceHint.style.fontSize = '10px';
+      traceHint.style.color = 'var(--text-muted)';
+      traceHint.style.marginBottom = '6px';
+      traceHint.textContent = 'Create a tube following the model outline';
+      traceGroup.appendChild(traceHint);
+
+      const traceBtnRow = document.createElement('div');
+      traceBtnRow.style.display = 'flex';
+      traceBtnRow.style.gap = '6px';
+
+      const traceCircleBtn = document.createElement('button');
+      traceCircleBtn.className = 'btn btn-accent btn-block';
+      traceCircleBtn.textContent = 'Trace Circle';
+      traceCircleBtn.addEventListener('click', () => {
+        if (this.onTraceRef) this.onTraceRef('circle');
+      });
+      traceBtnRow.appendChild(traceCircleBtn);
+
+      const traceRectBtn = document.createElement('button');
+      traceRectBtn.className = 'btn btn-accent btn-block';
+      traceRectBtn.textContent = 'Trace Rectangle';
+      traceRectBtn.addEventListener('click', () => {
+        if (this.onTraceRef) this.onTraceRef('rectangle');
+      });
+      traceBtnRow.appendChild(traceRectBtn);
+
+      traceGroup.appendChild(traceBtnRow);
+      this.container.appendChild(traceGroup);
+    }
 
     // Remove button
     const removeGroup = document.createElement('div');

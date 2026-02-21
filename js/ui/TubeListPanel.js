@@ -18,10 +18,11 @@ export class TubeListPanel {
     this.onDeleteTube = null;    // (tubeId) => {}
     this.onToggleVisible = null; // (tubeId) => {}
 
-    this.onSelectRefModel = null;    // (refId) => {}
-    this.onDeleteRefModel = null;    // (refId) => {}
-    this.onToggleRefVisible = null;  // (refId) => {}
-    this.onReimportRefModel = null;  // (refId) => {}
+    this.onSelectRefModel = null;       // (refId) => {}
+    this.onMultiSelectRefModel = null;  // (refId) => {} — Shift/Ctrl+click
+    this.onDeleteRefModel = null;       // (refId) => {}
+    this.onToggleRefVisible = null;     // (refId) => {}
+    this.onReimportRefModel = null;     // (refId) => {}
 
     this._showEmpty();
   }
@@ -33,13 +34,15 @@ export class TubeListPanel {
    * @param {import('../ref/ReferenceModel.js').ReferenceModel[]} [refModels]
    * @param {number|null} [selectedRefId]
    * @param {Set<number>} [selectedIds] - multi-selected tube IDs
+   * @param {Set<number>} [selectedRefIds] - multi-selected ref model IDs
    */
-  refresh(tubes, selectedId, refModels, selectedRefId, selectedIds) {
+  refresh(tubes, selectedId, refModels, selectedRefId, selectedIds, selectedRefIds) {
     this.tubes = tubes;
     this.selectedTubeId = selectedId;
     this.refModels = refModels || [];
     this.selectedRefId = selectedRefId || null;
     this._selectedIds = selectedIds || new Set();
+    this._selectedRefIds = selectedRefIds || new Set();
 
     if (tubes.length === 0 && this.refModels.length === 0) {
       this._showEmpty();
@@ -165,7 +168,12 @@ export class TubeListPanel {
   _buildRefItem(ref, selectedRefId) {
     const item = document.createElement('div');
     const isGhost = ref.needsReimport;
-    item.className = 'ref-item' + (ref.id === selectedRefId ? ' selected' : '') + (isGhost ? ' ghost' : '');
+    const isMultiSelected = this._selectedRefIds && this._selectedRefIds.has(ref.id);
+    let cls = 'ref-item';
+    if (ref.id === selectedRefId) cls += ' selected';
+    if (isMultiSelected && ref.id !== selectedRefId) cls += ' multi-selected';
+    if (isGhost) cls += ' ghost';
+    item.className = cls;
     item.dataset.refId = ref.id;
 
     // Cube icon
@@ -226,9 +234,11 @@ export class TubeListPanel {
     item.appendChild(actions);
 
     // Click to select (or reimport if ghost)
-    item.addEventListener('click', () => {
+    item.addEventListener('click', (e) => {
       if (isGhost) {
         if (this.onReimportRefModel) this.onReimportRefModel(ref.id);
+      } else if ((e.ctrlKey || e.metaKey || e.shiftKey) && this.onMultiSelectRefModel) {
+        this.onMultiSelectRefModel(ref.id);
       } else {
         if (this.onSelectRefModel) this.onSelectRefModel(ref.id);
       }

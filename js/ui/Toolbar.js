@@ -23,12 +23,20 @@ export class Toolbar {
     this.onPresetChange = null;   // (presetId) => {}
     this.onGroupTubes = null;     // () => {}
     this.onUngroupTubes = null;   // () => {}
+    this.onViewChange = null;     // (viewName) => {}
+    this.onFocus = null;          // () => {}
+    this.onIsolate = null;        // () => {}
+    this.onCommandPanel = null;   // () => {}
 
     this._build();
   }
 
   _build() {
     this.container.innerHTML = '';
+
+    // ═══ ROW 1: Drawing tools, Fixture preset, Edit tools ═══
+    const row1 = document.createElement('div');
+    row1.className = 'toolbar-row';
 
     // Drawing tools group
     const drawGroup = this._createGroup();
@@ -38,7 +46,7 @@ export class Toolbar {
     this.rectangleBtn = this._addButton(drawGroup, 'rectangle', 'Rectangle', this._rectangleIcon(), '4');
     this.circleBtn = this._addButton(drawGroup, 'circle', 'Circle', this._circleIcon(), '5');
     this.cutBtn = this._addButton(drawGroup, 'cut', 'Cut Tube', this._cutIcon(), 'C');
-    this.container.appendChild(drawGroup);
+    row1.appendChild(drawGroup);
 
     // Fixture Preset group
     const presetGroup = this._createGroup();
@@ -51,36 +59,73 @@ export class Toolbar {
     this._presetSelect.style.width = '160px';
     this._presetSelect.style.height = '26px';
     this._presetSelect.style.fontSize = '11px';
+    // Placeholder option
+    const placeholder = document.createElement('option');
+    placeholder.value = '';
+    placeholder.textContent = '— Select Type —';
+    placeholder.disabled = true;
+    placeholder.selected = true;
+    this._presetSelect.appendChild(placeholder);
     for (const p of getPresetList()) {
       const opt = document.createElement('option');
       opt.value = p.id;
       opt.textContent = p.label;
       this._presetSelect.appendChild(opt);
     }
-    this._presetSelect.value = 'custom';
     this._presetSelect.addEventListener('change', () => {
       if (this.onPresetChange) this.onPresetChange(this._presetSelect.value);
     });
     presetGroup.appendChild(this._presetSelect);
-    this.container.appendChild(presetGroup);
+    row1.appendChild(presetGroup);
 
     // Edit group
     const editGroup = this._createGroup();
-    this.duplicateBtn = this._addButton(editGroup, 'duplicate-tube', 'Duplicate Tube', this._duplicateIcon(), 'Ctrl+D');
+    this.duplicateBtn = this._addButton(editGroup, 'duplicate-tube', 'Duplicate Tube', this._duplicateIcon(), '^D');
     this.duplicateBtn.classList.remove('active');
     this.deleteBtn = this._addButton(editGroup, 'delete-tube', 'Delete Tube', this._deleteIcon(), 'Del');
     this.deleteBtn.classList.remove('active');
-    this.groupBtn = this._addButton(editGroup, 'group-tubes', 'Group Tubes', this._groupIcon(), 'Ctrl+G');
+    this.groupBtn = this._addButton(editGroup, 'group-tubes', 'Group Tubes', this._groupIcon(), '^G');
     this.groupBtn.classList.remove('active');
-    this.ungroupBtn = this._addButton(editGroup, 'ungroup-tubes', 'Ungroup Tubes', this._ungroupIcon(), 'Ctrl+B');
+    this.ungroupBtn = this._addButton(editGroup, 'ungroup-tubes', 'Ungroup Tubes', this._ungroupIcon(), '^B');
     this.ungroupBtn.classList.remove('active');
-    this.container.appendChild(editGroup);
+    row1.appendChild(editGroup);
 
-    // Options group
+    // Row 1 spacer
+    const spacer1 = document.createElement('div');
+    spacer1.style.flex = '1';
+    row1.appendChild(spacer1);
+
+    // File group on Row 1 right side (Save / Load / Import Ref / Export)
+    const fileGroup = this._createGroup();
+    this.saveBtn = this._addButton(fileGroup, 'save', 'Save Project', this._saveIcon(), '^S');
+    this.saveBtn.classList.remove('active');
+    this.loadBtn = this._addButton(fileGroup, 'load', 'Load Project', this._loadIcon(), '^O');
+    this.loadBtn.classList.remove('active');
+    this.importRefBtn = this._addButton(fileGroup, 'import-ref', 'Import Reference Model', this._importRefIcon(), '^I');
+    this.importRefBtn.classList.remove('active');
+    this.exportBtn = this._addButton(fileGroup, 'export', 'Export MVR', this._exportIcon(), '^E');
+    this.exportBtn.classList.remove('active');
+    row1.appendChild(fileGroup);
+
+    // Help button
+    const helpGroup = this._createGroup();
+    this.helpBtn = this._addButton(helpGroup, 'help', 'Help & Shortcuts', this._helpIcon(), '?');
+    this.helpBtn.classList.remove('active');
+    this.cmdPadBtn = this._addButton(helpGroup, 'command-panel', 'Command Pad', this._cmdPadIcon(), 'P');
+    this.cmdPadBtn.classList.remove('active');
+    row1.appendChild(helpGroup);
+
+    this.container.appendChild(row1);
+
+    // ═══ ROW 2: Snap, Plane, View, Focus, Isolate, Grid, Branding ═══
+    const row2 = document.createElement('div');
+    row2.className = 'toolbar-row';
+
+    // Options group (snap)
     const optGroup = this._createGroup();
     this.snapBtn = this._addButton(optGroup, 'snap', 'Grid Snap', this._snapIcon(), 'G');
     this.snapBtn.classList.toggle('active', this.snapEnabled);
-    this.container.appendChild(optGroup);
+    row2.appendChild(optGroup);
 
     // Drawing plane group
     const planeGroup = this._createGroup();
@@ -92,7 +137,51 @@ export class Toolbar {
     this.xyBtn = this._addButton(planeGroup, 'plane-XY', 'Front XY', this._planeXYIcon(), 'F2');
     this.yzBtn = this._addButton(planeGroup, 'plane-YZ', 'Side YZ', this._planeYZIcon(), 'F3');
     this._setPlaneActive('XZ');
-    this.container.appendChild(planeGroup);
+    row2.appendChild(planeGroup);
+
+    // View group
+    const viewGroup = this._createGroup();
+    const viewLabel = document.createElement('span');
+    viewLabel.className = 'toolbar-label';
+    viewLabel.textContent = 'View:';
+    viewGroup.appendChild(viewLabel);
+    this._viewSelect = document.createElement('select');
+    this._viewSelect.className = 'toolbar-select';
+    this._viewSelect.style.width = '100px';
+    const viewOptions = [
+      { value: '', label: '\u2014 View \u2014' },
+      { value: 'top', label: 'Top (7)' },
+      { value: 'bottom', label: 'Bottom (^7)' },
+      { value: 'front', label: 'Front (1)' },
+      { value: 'back', label: 'Back (^1)' },
+      { value: 'right', label: 'Right (3)' },
+      { value: 'left', label: 'Left (^3)' },
+      { value: 'perspective', label: '3D (0)' },
+    ];
+    for (const v of viewOptions) {
+      const opt = document.createElement('option');
+      opt.value = v.value;
+      opt.textContent = v.label;
+      if (v.value === '') opt.disabled = true;
+      this._viewSelect.appendChild(opt);
+    }
+    this._viewSelect.value = '';
+    this._viewSelect.addEventListener('change', () => {
+      const val = this._viewSelect.value;
+      if (val && this.onViewChange) this.onViewChange(val);
+      this._viewSelect.value = ''; // reset to placeholder
+    });
+    viewGroup.appendChild(this._viewSelect);
+
+    // Focus button
+    this.focusBtn = this._addButton(viewGroup, 'focus', 'Focus Selected', this._focusIcon(), 'F');
+    this.focusBtn.classList.remove('active');
+
+    // Isolate button
+    this.isolateBtn = this._addButton(viewGroup, 'isolate', 'Isolation Mode', this._isolateIcon(), 'I');
+    this.isolateBtn.classList.remove('active');
+
+    row2.appendChild(viewGroup);
 
     // Grid size group
     const gridGroup = this._createGroup();
@@ -172,34 +261,12 @@ export class Toolbar {
     gridGroup.appendChild(gridSelect);
     gridGroup.appendChild(customInput);
     gridGroup.appendChild(customUnit);
-    this.container.appendChild(gridGroup);
+    row2.appendChild(gridGroup);
 
-    // Spacer
-    const spacer = document.createElement('div');
-    spacer.style.flex = '1';
-    this.container.appendChild(spacer);
-
-    // File group (Save / Load / Import Ref)
-    const fileGroup = this._createGroup();
-    this.saveBtn = this._addButton(fileGroup, 'save', 'Save Project', this._saveIcon(), 'Ctrl+S');
-    this.saveBtn.classList.remove('active');
-    this.loadBtn = this._addButton(fileGroup, 'load', 'Load Project', this._loadIcon(), 'Ctrl+O');
-    this.loadBtn.classList.remove('active');
-    this.importRefBtn = this._addButton(fileGroup, 'import-ref', 'Import Reference Model', this._importRefIcon(), 'Ctrl+I');
-    this.importRefBtn.classList.remove('active');
-    this.container.appendChild(fileGroup);
-
-    // Export group
-    const exportGroup = this._createGroup();
-    this.exportBtn = this._addButton(exportGroup, 'export', 'Export MVR', this._exportIcon(), 'Ctrl+E');
-    this.exportBtn.classList.remove('active');
-    this.container.appendChild(exportGroup);
-
-    // Help button
-    const helpGroup = this._createGroup();
-    this.helpBtn = this._addButton(helpGroup, 'help', 'Help & Shortcuts', this._helpIcon(), '?');
-    this.helpBtn.classList.remove('active');
-    this.container.appendChild(helpGroup);
+    // Row 2 spacer
+    const spacer2 = document.createElement('div');
+    spacer2.style.flex = '1';
+    row2.appendChild(spacer2);
 
     // Logo + App name (clickable — opens about page)
     const branding = document.createElement('a');
@@ -216,8 +283,8 @@ export class Toolbar {
     const logo = document.createElement('img');
     logo.src = 'byfeignasse_logo_1.png';
     logo.alt = 'BYFEIGNASSE';
-    logo.style.height = '28px';
-    logo.style.width = '28px';
+    logo.style.height = '24px';
+    logo.style.width = '24px';
     logo.style.objectFit = 'contain';
     logo.style.borderRadius = '50%';
     logo.style.filter = 'invert(1)';
@@ -225,13 +292,15 @@ export class Toolbar {
 
     const label = document.createElement('span');
     label.className = 'toolbar-label';
-    label.style.fontSize = '12px';
+    label.style.fontSize = '11px';
     label.style.letterSpacing = '1px';
     label.style.fontWeight = '600';
-    label.textContent = 'MAGICTOOLBOX NEONFLEXER Beta v1.2.0';
+    label.textContent = 'NEONFLEXER v1.2.1';
     branding.appendChild(label);
 
-    this.container.appendChild(branding);
+    row2.appendChild(branding);
+
+    this.container.appendChild(row2);
 
     // Set initial active
     this._setActive('select');
@@ -298,6 +367,18 @@ export class Toolbar {
     }
     if (id === 'help') {
       if (this.onHelp) this.onHelp();
+      return;
+    }
+    if (id === 'command-panel') {
+      if (this.onCommandPanel) this.onCommandPanel();
+      return;
+    }
+    if (id === 'focus') {
+      if (this.onFocus) this.onFocus();
+      return;
+    }
+    if (id === 'isolate') {
+      if (this.onIsolate) this.onIsolate();
       return;
     }
     if (id === 'snap') {
@@ -422,6 +503,18 @@ export class Toolbar {
   }
   _ungroupIcon() {
     return `<svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1" fill="none" stroke="currentColor" stroke-width="1.5"/><rect x="14" y="14" width="7" height="7" rx="1" fill="none" stroke="currentColor" stroke-width="1.5"/><line x1="9" y1="15" x2="15" y2="9" stroke="currentColor" stroke-width="1.5"/></svg>`;
+  }
+  _cmdPadIcon() {
+    return `<svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1.5" fill="currentColor"/><rect x="14" y="3" width="7" height="7" rx="1.5" fill="currentColor"/><rect x="3" y="14" width="7" height="7" rx="1.5" fill="currentColor"/><rect x="14" y="14" width="7" height="7" rx="1.5" fill="currentColor"/></svg>`;
+  }
+  _focusIcon() {
+    return `<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M12 2v4M12 18v4M2 12h4M18 12h4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>`;
+  }
+  _isolateIcon() {
+    return `<svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2" fill="none" stroke="currentColor" stroke-width="1.5"/><circle cx="12" cy="12" r="4" fill="none" stroke="currentColor" stroke-width="1.5"/><circle cx="12" cy="12" r="1.5" fill="currentColor"/></svg>`;
+  }
+  setIsolateActive(active) {
+    if (this.isolateBtn) this.isolateBtn.classList.toggle('active', active);
   }
   _aboutIcon() {
     return `<svg viewBox="0 0 24 24" style="fill:none"><circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="1.5" fill="none"/><line x1="12" y1="11" x2="12" y2="17" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/><circle cx="12" cy="7.5" r="1.5" fill="currentColor" stroke="none"/></svg>`;
