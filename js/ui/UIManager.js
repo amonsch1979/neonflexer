@@ -224,6 +224,7 @@ export class UIManager {
       this._refreshTubeList();
     };
     this.propertiesPanel.onRefModelRemove = (refModel) => {
+      if (!confirm(`Remove "${refModel.name}"? This cannot be undone.`)) return;
       this.refModelManager.removeModel(refModel.id);
     };
     this.propertiesPanel.onSnapToRef = (tube) => this._onSnapToRef(tube);
@@ -869,6 +870,9 @@ export class UIManager {
   }
 
   _onDeleteRefModel(id) {
+    const refModel = this.refModelManager.getModelById(id);
+    const name = refModel ? `"${refModel.name}"` : 'this reference model';
+    if (!confirm(`Remove ${name}? This cannot be undone.`)) return;
     this.refModelManager.removeModel(id);
   }
 
