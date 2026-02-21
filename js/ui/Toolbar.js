@@ -195,10 +195,12 @@ export class Toolbar {
     this.exportBtn.classList.remove('active');
     this.container.appendChild(exportGroup);
 
-    // Help button
+    // Help & About group
     const helpGroup = this._createGroup();
     this.helpBtn = this._addButton(helpGroup, 'help', 'Help & Shortcuts', this._helpIcon(), '?');
     this.helpBtn.classList.remove('active');
+    this.aboutBtn = this._addButton(helpGroup, 'about', 'Release Notes & Info', this._aboutIcon(), '');
+    this.aboutBtn.classList.remove('active');
     this.container.appendChild(helpGroup);
 
     // Logo + App name
@@ -293,6 +295,10 @@ export class Toolbar {
     }
     if (id === 'help') {
       if (this.onHelp) this.onHelp();
+      return;
+    }
+    if (id === 'about') {
+      window.open('about.html', '_blank');
       return;
     }
     if (id === 'snap') {
@@ -417,5 +423,8 @@ export class Toolbar {
   }
   _ungroupIcon() {
     return `<svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1" fill="none" stroke="currentColor" stroke-width="1.5"/><rect x="14" y="14" width="7" height="7" rx="1" fill="none" stroke="currentColor" stroke-width="1.5"/><line x1="9" y1="15" x2="15" y2="9" stroke="currentColor" stroke-width="1.5"/></svg>`;
+  }
+  _aboutIcon() {
+    return `<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" fill="none" stroke="currentColor" stroke-width="1.5"/><text x="12" y="17" font-size="14" font-weight="bold" fill="currentColor" text-anchor="middle" font-family="sans-serif">i</text></svg>`;
   }
 }

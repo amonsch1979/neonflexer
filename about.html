@@ -1,0 +1,319 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>NEONFLEXER Beta v1.2.0 — Release Notes</title>
+  <style>
+    :root {
+      --bg-primary: #1a1a2e;
+      --bg-secondary: #16213e;
+      --bg-panel: #0f3460;
+      --bg-input: #1a1a3e;
+      --accent: #00d4ff;
+      --accent-dim: #0097b2;
+      --accent-glow: rgba(0, 212, 255, 0.3);
+      --text-primary: #e0e0e0;
+      --text-secondary: #8899aa;
+      --text-muted: #556677;
+      --border: #2a2a4e;
+      --danger: #ff4466;
+      --success: #44ff88;
+      --warning: #ffaa44;
+      --font-mono: 'SF Mono', 'Consolas', 'Monaco', 'Menlo', 'Courier New', monospace;
+      --font-ui: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Helvetica Neue', 'Arial', sans-serif;
+    }
+
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      font-family: var(--font-ui);
+      background: var(--bg-primary);
+      color: var(--text-primary);
+      min-height: 100vh;
+      display: flex;
+      justify-content: center;
+      padding: 40px 20px;
+    }
+
+    .container {
+      max-width: 720px;
+      width: 100%;
+    }
+
+    .header {
+      text-align: center;
+      margin-bottom: 40px;
+    }
+
+    .header img {
+      width: 64px;
+      height: 64px;
+      border-radius: 50%;
+      filter: invert(1);
+      margin-bottom: 16px;
+    }
+
+    .header h1 {
+      font-size: 28px;
+      font-weight: 700;
+      color: var(--accent);
+      letter-spacing: 2px;
+      margin-bottom: 4px;
+    }
+
+    .header .version {
+      font-size: 14px;
+      color: var(--text-secondary);
+      font-family: var(--font-mono);
+    }
+
+    .back-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 8px 16px;
+      background: var(--accent-dim);
+      border: 1px solid var(--accent);
+      border-radius: 6px;
+      color: white;
+      font-size: 13px;
+      font-weight: 600;
+      text-decoration: none;
+      transition: all 0.15s;
+      margin-top: 16px;
+    }
+
+    .back-btn:hover {
+      background: var(--accent);
+      box-shadow: 0 0 20px var(--accent-glow);
+    }
+
+    .card {
+      background: var(--bg-secondary);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 24px;
+      margin-bottom: 20px;
+      box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+    }
+
+    .card h2 {
+      font-size: 18px;
+      font-weight: 600;
+      color: var(--accent);
+      margin-bottom: 12px;
+      letter-spacing: 0.5px;
+    }
+
+    .card h3 {
+      font-size: 14px;
+      font-weight: 600;
+      color: var(--warning);
+      margin-top: 16px;
+      margin-bottom: 8px;
+    }
+
+    .card p {
+      font-size: 13px;
+      color: var(--text-secondary);
+      line-height: 1.6;
+      margin-bottom: 8px;
+    }
+
+    .card ul {
+      list-style: none;
+      padding: 0;
+    }
+
+    .card ul li {
+      font-size: 13px;
+      color: var(--text-secondary);
+      padding: 4px 0 4px 20px;
+      position: relative;
+      line-height: 1.5;
+    }
+
+    .card ul li::before {
+      content: '';
+      position: absolute;
+      left: 4px;
+      top: 11px;
+      width: 6px;
+      height: 6px;
+      background: var(--accent);
+      border-radius: 50%;
+    }
+
+    .shortcuts-table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 8px;
+    }
+
+    .shortcuts-table th {
+      text-align: left;
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+      color: var(--accent-dim);
+      padding: 6px 8px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .shortcuts-table td {
+      font-size: 13px;
+      color: var(--text-secondary);
+      padding: 5px 8px;
+      border-bottom: 1px solid rgba(42, 42, 78, 0.5);
+    }
+
+    .shortcuts-table kbd {
+      display: inline-block;
+      padding: 2px 7px;
+      font-family: var(--font-mono);
+      font-size: 11px;
+      font-weight: 700;
+      color: var(--text-primary);
+      background: var(--bg-input);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+    }
+
+    .known-issues li::before {
+      background: var(--warning) !important;
+    }
+
+    .footer {
+      text-align: center;
+      padding: 30px 0 10px;
+      font-size: 12px;
+      color: var(--text-muted);
+      letter-spacing: 1px;
+    }
+
+    .footer strong {
+      color: var(--text-secondary);
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <img src="byfeignasse_logo_1.png" alt="BYFEIGNASSE">
+      <h1>NEONFLEXER</h1>
+      <div class="version">Beta v1.2.0</div>
+      <a href="index.html" class="back-btn">
+        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>
+        Open App
+      </a>
+    </div>
+
+    <div class="card">
+      <h2>What's New</h2>
+
+      <h3>Fixture Presets</h3>
+      <p>Select a real NeonFlex product from the toolbar dropdown (e.g. LEDStructures LS360FLEX) and the app auto-fills the correct tube profile, pixel pitch, DMX channels, and maximum tube length. No more manual setup for common products.</p>
+
+      <h3>Auto-Segmenting</h3>
+      <p>When your drawn tube is longer than the fixture allows, the app automatically cuts it into segments of the correct length and places connector pieces at each junction — just like in real life. Each segment gets its own DMX patch.</p>
+
+      <h3>Shape Tools</h3>
+      <ul>
+        <li><strong>Rectangle</strong> (press <kbd>4</kbd>) — Click two corners to instantly draw a rectangular tube path</li>
+        <li><strong>Circle</strong> (press <kbd>5</kbd>) — Click center then edge to draw a circular tube path</li>
+        <li>Both shapes auto-segment when a fixture preset with a max length is active</li>
+      </ul>
+
+      <h3>Cut / Split Tool</h3>
+      <p>Press <kbd>C</kbd> to enter cut mode, then click anywhere on a tube to split it in two. Both halves keep all the original settings. Great for breaking up long runs or adjusting segments.</p>
+
+      <h3>Reference Model Import</h3>
+      <p>Load your venue or set design as a reference model (press <kbd>Ctrl+I</kbd>). Supports GLB, OBJ, 3DS, and even full MVR files exported from Capture. The model appears as a semi-transparent overlay so you can draw tubes directly on your design.</p>
+      <ul>
+        <li><strong>Snap to Ref</strong> — A button in the properties panel snaps your tube's control points to the nearest surface of a reference model</li>
+      </ul>
+
+      <h3>Tube Grouping</h3>
+      <p>Select multiple tubes in the left panel (hold <kbd>Shift</kbd> or <kbd>Ctrl</kbd> and click), then press <kbd>Ctrl+G</kbd> to group them. Now when you move one tube in the group, all of them move together — including connectors. Press <kbd>Ctrl+B</kbd> to ungroup.</p>
+      <p>Grouped tubes show a colored left border and chain icon in the list so you can see at a glance which tubes belong together.</p>
+
+      <h3>Start Pixel Picker</h3>
+      <p>Visually pick where the first DMX pixel starts by hovering over the tube and clicking on a pixel position. Useful when your DMX chain doesn't start at the beginning of the tube.</p>
+
+      <h3>Improved Measurement Accuracy</h3>
+      <p>Tube length measurements are now more accurate on complex curves with many control points.</p>
+    </div>
+
+    <div class="card">
+      <h2>New Shortcuts</h2>
+      <table class="shortcuts-table">
+        <thead>
+          <tr><th>Key</th><th>What it does</th></tr>
+        </thead>
+        <tbody>
+          <tr><td><kbd>4</kbd></td><td>Rectangle tool</td></tr>
+          <tr><td><kbd>5</kbd></td><td>Circle tool</td></tr>
+          <tr><td><kbd>C</kbd></td><td>Cut / Split tool</td></tr>
+          <tr><td><kbd>Ctrl+G</kbd></td><td>Group selected tubes</td></tr>
+          <tr><td><kbd>Ctrl+B</kbd></td><td>Ungroup tubes</td></tr>
+          <tr><td><kbd>Ctrl+I</kbd></td><td>Import reference model</td></tr>
+          <tr><td><kbd>Shift+Click</kbd></td><td>Multi-select tubes in list</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="card">
+      <h2>All Shortcuts</h2>
+      <table class="shortcuts-table">
+        <thead>
+          <tr><th>Key</th><th>Action</th></tr>
+        </thead>
+        <tbody>
+          <tr><td><kbd>1</kbd></td><td>Select / Move mode</td></tr>
+          <tr><td><kbd>2</kbd></td><td>Click Place mode</td></tr>
+          <tr><td><kbd>3</kbd></td><td>Freehand Draw mode</td></tr>
+          <tr><td><kbd>4</kbd></td><td>Rectangle shape tool</td></tr>
+          <tr><td><kbd>5</kbd></td><td>Circle shape tool</td></tr>
+          <tr><td><kbd>C</kbd></td><td>Cut / Split tube tool</td></tr>
+          <tr><td><kbd>Ctrl+D</kbd></td><td>Duplicate selected tube</td></tr>
+          <tr><td><kbd>Ctrl+G</kbd></td><td>Group selected tubes</td></tr>
+          <tr><td><kbd>Ctrl+B</kbd></td><td>Ungroup tubes</td></tr>
+          <tr><td><kbd>Del</kbd></td><td>Delete selected tube or point</td></tr>
+          <tr><td><kbd>G</kbd></td><td>Toggle grid snap</td></tr>
+          <tr><td><kbd>H</kbd></td><td>Toggle Y-axis on move gizmo</td></tr>
+          <tr><td><kbd>F1</kbd> <kbd>F2</kbd> <kbd>F3</kbd></td><td>Switch drawing plane (XZ / XY / YZ)</td></tr>
+          <tr><td><kbd>Shift+Drag</kbd></td><td>Adjust height off-plane</td></tr>
+          <tr><td><kbd>Shift/Ctrl+Click</kbd></td><td>Multi-select tubes (in list panel)</td></tr>
+          <tr><td><kbd>Enter</kbd></td><td>Finish tube</td></tr>
+          <tr><td><kbd>Backspace</kbd></td><td>Undo last point</td></tr>
+          <tr><td><kbd>Ctrl+S</kbd></td><td>Save project</td></tr>
+          <tr><td><kbd>Ctrl+O</kbd></td><td>Load project</td></tr>
+          <tr><td><kbd>Ctrl+I</kbd></td><td>Import reference model</td></tr>
+          <tr><td><kbd>Ctrl+E</kbd></td><td>Export MVR</td></tr>
+          <tr><td><kbd>?</kbd></td><td>Help overlay</td></tr>
+          <tr><td><kbd>Esc</kbd></td><td>Cancel / close</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="card">
+      <h2>Known Limitations</h2>
+      <ul class="known-issues">
+        <li>Shape tools (Rectangle/Circle) may not work perfectly when multiple reference models are loaded</li>
+        <li>Auto-segment lengths can be off by a few millimeters on very complex curves</li>
+        <li>Windows offline only — Mac users please use the online version</li>
+      </ul>
+    </div>
+
+    <div class="card">
+      <h2>Offline Version</h2>
+      <p>Unzip the provided file, double-click <strong>NEONFLEXER.bat</strong>, and the app opens in your browser. No install needed.</p>
+    </div>
+
+    <div class="footer">
+      Made by <strong>BYFEIGNASSE</strong> | MAGICTOOLBOX
+    </div>
+  </div>
+</body>
+</html>
