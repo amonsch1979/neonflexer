@@ -195,20 +195,23 @@ export class Toolbar {
     this.exportBtn.classList.remove('active');
     this.container.appendChild(exportGroup);
 
-    // Help & About group
+    // Help button
     const helpGroup = this._createGroup();
     this.helpBtn = this._addButton(helpGroup, 'help', 'Help & Shortcuts', this._helpIcon(), '?');
     this.helpBtn.classList.remove('active');
-    this.aboutBtn = this._addButton(helpGroup, 'about', 'Release Notes & Info', this._aboutIcon(), '');
-    this.aboutBtn.classList.remove('active');
     this.container.appendChild(helpGroup);
 
-    // Logo + App name
-    const branding = document.createElement('div');
+    // Logo + App name (clickable — opens about page)
+    const branding = document.createElement('a');
+    branding.href = 'about.html';
+    branding.target = '_blank';
     branding.style.display = 'flex';
     branding.style.alignItems = 'center';
     branding.style.gap = '6px';
     branding.style.marginLeft = '8px';
+    branding.style.textDecoration = 'none';
+    branding.style.cursor = 'pointer';
+    branding.title = 'Release Notes & Info';
 
     const logo = document.createElement('img');
     logo.src = 'byfeignasse_logo_1.png';
@@ -295,10 +298,6 @@ export class Toolbar {
     }
     if (id === 'help') {
       if (this.onHelp) this.onHelp();
-      return;
-    }
-    if (id === 'about') {
-      window.open('about.html', '_blank');
       return;
     }
     if (id === 'snap') {
@@ -425,6 +424,6 @@ export class Toolbar {
     return `<svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1" fill="none" stroke="currentColor" stroke-width="1.5"/><rect x="14" y="14" width="7" height="7" rx="1" fill="none" stroke="currentColor" stroke-width="1.5"/><line x1="9" y1="15" x2="15" y2="9" stroke="currentColor" stroke-width="1.5"/></svg>`;
   }
   _aboutIcon() {
-    return `<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" fill="none" stroke="currentColor" stroke-width="1.5"/><text x="12" y="17" font-size="14" font-weight="bold" fill="currentColor" text-anchor="middle" font-family="sans-serif">i</text></svg>`;
+    return `<svg viewBox="0 0 24 24" style="fill:none"><circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="1.5" fill="none"/><line x1="12" y1="11" x2="12" y2="17" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/><circle cx="12" cy="7.5" r="1.5" fill="currentColor" stroke="none"/></svg>`;
   }
 }

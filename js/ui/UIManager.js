@@ -723,6 +723,10 @@ export class UIManager {
             <div class="help-row"><kbd>?</kbd><span>Toggle this help</span></div>
           </div>
         </div>
+        <div style="padding:12px 20px;border-top:1px solid var(--border);text-align:center;">
+          <a href="about.html" target="_blank" style="color:var(--accent);font-size:13px;font-weight:600;text-decoration:none;">Release Notes &amp; Info — Beta v1.2.0</a>
+          <div style="margin-top:6px;font-size:11px;color:var(--text-muted);">BYFEIGNASSE | MAGICTOOLBOX</div>
+        </div>
       </div>
     `;
     document.body.appendChild(overlay);
