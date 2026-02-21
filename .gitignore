@@ -12,5 +12,8 @@ EX3.jpg
 # Release archives
 *.zip
 
+# LEDStructures branded edition (private, not for GitHub)
+neonflexer Ledstructures Edition/
+
 # Claude Code
 .claude/
