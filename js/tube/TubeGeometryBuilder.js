@@ -64,7 +64,7 @@ export class TubeGeometryBuilder {
    */
   static _buildSquare(curve, tubeModel) {
     const size = tubeModel.outerRadius * 2; // use diameter as side length
-    const shape = this._roundedRectShape(size, size, size * 0.15);
+    const shape = this._profileShape(size, size, tubeModel.diffuserShape);
     return this._extrudeAlongCurve(shape, curve, tubeModel);
   }
 
@@ -74,9 +74,241 @@ export class TubeGeometryBuilder {
   static _buildRect(curve, tubeModel) {
     const w = tubeModel.widthM;
     const h = tubeModel.heightM;
-    const cornerR = Math.min(w, h) * 0.15;
-    const shape = this._roundedRectShape(w, h, cornerR);
+    const shape = this._profileShape(w, h, tubeModel.diffuserShape);
     return this._extrudeAlongCurve(shape, curve, tubeModel);
+  }
+
+  /**
+   * Dispatch to the correct cross-section shape based on diffuser type.
+   */
+  static _profileShape(w, h, diffuserShape) {
+    switch (diffuserShape) {
+      case 'dome':
+        return this._domeShape(w, h);
+      case 'square':
+        // Square diffuser = same as full rounded rect (split handles the separation)
+        return this._roundedRectShape(w, h, Math.min(w, h) * 0.15);
+      default:
+        return this._roundedRectShape(w, h, Math.min(w, h) * 0.15);
+    }
+  }
+
+  /**
+   * Build split geometry: separate base housing + diffuser.
+   * Returns { base: BufferGeometry, diffuser: BufferGeometry } or null if not applicable.
+   * Works for all square/rect profiles with any diffuserShape (flat, dome, oval).
+   */
+  static buildSplit(curve, tubeModel) {
+    if (tubeModel.profile !== 'square' && tubeModel.profile !== 'rect') return null;
+
+    const shapes = this._getSplitShapes(tubeModel);
+    if (!shapes) return null;
+
+    return {
+      base: this._extrudeAlongCurve(shapes.base, curve, tubeModel),
+      diffuser: this._extrudeAlongCurve(shapes.diffuser, curve, tubeModel),
+    };
+  }
+
+  /**
+   * Build only the diffuser geometry (for UV-mapped export).
+   * Returns BufferGeometry or null if not a split profile.
+   */
+  static buildDiffuserOnly(curve, tubeModel) {
+    if (tubeModel.profile !== 'square' && tubeModel.profile !== 'rect') return null;
+    const shapes = this._getSplitShapes(tubeModel);
+    if (!shapes) return null;
+    return this._extrudeAlongCurve(shapes.diffuser, curve, tubeModel);
+  }
+
+  /**
+   * Build only the housing geometry (for UV-mapped export — non-UV-mapped housing).
+   * Returns BufferGeometry or null if not a split profile.
+   */
+  static buildHousingOnly(curve, tubeModel) {
+    if (tubeModel.profile !== 'square' && tubeModel.profile !== 'rect') return null;
+    const shapes = this._getSplitShapes(tubeModel);
+    if (!shapes) return null;
+    return this._extrudeAlongCurve(shapes.base, curve, tubeModel);
+  }
+
+  /**
+   * Get the base (housing) and diffuser shapes for a square/rect profile.
+   * @returns {{ base: THREE.Shape, diffuser: THREE.Shape }} or null
+   */
+  static _getSplitShapes(tubeModel) {
+    let w, h;
+    if (tubeModel.profile === 'square') {
+      const size = tubeModel.outerRadius * 2;
+      w = size; h = size;
+    } else {
+      w = tubeModel.widthM;
+      h = tubeModel.heightM;
+    }
+
+    const wallT = tubeModel.wallThicknessMm * 0.001;
+
+    switch (tubeModel.diffuserShape) {
+      case 'dome':
+        return { base: this._domeBaseShape(w, h, wallT), diffuser: this._domeDiffuserShape(w, h) };
+      case 'square': {
+        // Square diffuser: taller cap (~40% of height), deeper U-channel housing
+        const splitH = h * 0.4;
+        return { base: this._uBaseShape(w, h, wallT, splitH), diffuser: this._flatDiffuserShape(w, h, splitH) };
+      }
+      default: // 'flat'
+        return { base: this._uBaseShape(w, h, wallT, wallT), diffuser: this._flatDiffuserShape(w, h, wallT) };
+    }
+  }
+
+  /**
+   * Rectangular base with semicircular dome on top.
+   * Total height = h (dome is part of it). Dome arc sweeps 0→PI (right to left over top).
+   */
+  static _domeShape(w, h) {
+    const shape = new THREE.Shape();
+    const hw = w / 2;
+    const hh = h / 2;
+    const r = Math.min(hw, hh);
+    const baseTopY = hh - r;
+
+    shape.moveTo(-hw, -hh);
+    shape.lineTo(hw, -hh);
+    shape.lineTo(hw, baseTopY);
+
+    const domeR = r < hw ? r : hw;
+    if (r < hw) {
+      // Wide tube: bridge from right wall to dome arc start
+      shape.lineTo(domeR, baseTopY);
+    }
+
+    // Dome arc from right to left (angle 0 → PI)
+    const arcSegments = 16;
+    for (let i = 0; i <= arcSegments; i++) {
+      const angle = (Math.PI * i) / arcSegments;
+      shape.lineTo(Math.cos(angle) * domeR, baseTopY + Math.sin(angle) * domeR);
+    }
+
+    if (r < hw) {
+      // Bridge from dome arc end to left wall
+      shape.lineTo(-hw, baseTopY);
+    }
+
+    shape.lineTo(-hw, -hh);
+    return shape;
+  }
+
+  /**
+   * Base housing shape for dome profile — open U-channel below the dome.
+   */
+  static _domeBaseShape(w, h, wallT) {
+    const shape = new THREE.Shape();
+    const hw = w / 2;
+    const hh = h / 2;
+    const r = Math.min(hw, hh);
+    const topY = hh - r;
+
+    // Outer contour (clockwise)
+    shape.moveTo(-hw, -hh);
+    shape.lineTo(hw, -hh);
+    shape.lineTo(hw, topY);
+
+    // Step inward across right wall top
+    shape.lineTo(hw - wallT, topY);
+
+    // Inner contour (counter-clockwise = back down)
+    shape.lineTo(hw - wallT, -hh + wallT);
+    shape.lineTo(-hw + wallT, -hh + wallT);
+    shape.lineTo(-hw + wallT, topY);
+
+    // Step outward across left wall top
+    shape.lineTo(-hw, topY);
+
+    // Outer left wall down (closes shape)
+    shape.lineTo(-hw, -hh);
+
+    return shape;
+  }
+
+  /**
+   * Diffuser-only shape for dome profile (dome cap sitting on top of base).
+   */
+  static _domeDiffuserShape(w, h) {
+    const shape = new THREE.Shape();
+    const hw = w / 2;
+    const hh = h / 2;
+    const r = Math.min(hw, hh);
+    const baseTopY = hh - r;
+    const domeR = r < hw ? r : hw;
+
+    // Bottom edge of diffuser section
+    shape.moveTo(-domeR, baseTopY);
+    shape.lineTo(domeR, baseTopY);
+
+    // Dome arc from right over top to left (angle 0 → PI)
+    const arcSegments = 16;
+    for (let i = 0; i <= arcSegments; i++) {
+      const angle = (Math.PI * i) / arcSegments;
+      shape.lineTo(Math.cos(angle) * domeR, baseTopY + Math.sin(angle) * domeR);
+    }
+
+    return shape;
+  }
+
+  /**
+   * Open U-channel housing: outer walls + bottom, open at the top (diffuser side).
+   * @param {number} splitH — height from top of tube to where housing ends
+   */
+  static _uBaseShape(w, h, wallT, splitH) {
+    const shape = new THREE.Shape();
+    const hw = w / 2;
+    const hh = h / 2;
+    const r = Math.min(hw, hh) * 0.15;
+    const topY = hh - splitH; // where housing walls end (open above this)
+
+    // Outer contour (clockwise) with rounded bottom corners
+    shape.moveTo(-hw + r, -hh);
+    shape.lineTo(hw - r, -hh);
+    shape.quadraticCurveTo(hw, -hh, hw, -hh + r);
+    shape.lineTo(hw, topY);
+
+    // Step inward across right wall top
+    shape.lineTo(hw - wallT, topY);
+
+    // Inner contour (counter-clockwise = back down)
+    shape.lineTo(hw - wallT, -hh + wallT);
+    shape.lineTo(-hw + wallT, -hh + wallT);
+    shape.lineTo(-hw + wallT, topY);
+
+    // Step outward across left wall top
+    shape.lineTo(-hw, topY);
+
+    // Outer left wall down with rounded corner (closes shape)
+    shape.lineTo(-hw, -hh + r);
+    shape.quadraticCurveTo(-hw, -hh, -hw + r, -hh);
+
+    return shape;
+  }
+
+  /**
+   * Flat profile: diffuser top cap (thin strip with rounded top corners).
+   */
+  static _flatDiffuserShape(w, h, wallT) {
+    const shape = new THREE.Shape();
+    const hw = w / 2;
+    const hh = h / 2;
+    const r = Math.min(hw, hh) * 0.15;
+    const splitY = hh - wallT;
+
+    shape.moveTo(-hw, splitY);
+    shape.lineTo(hw, splitY);
+    shape.lineTo(hw, hh - r);
+    shape.quadraticCurveTo(hw, hh, hw - r, hh);
+    shape.lineTo(-hw + r, hh);
+    shape.quadraticCurveTo(-hw, hh, -hw, hh - r);
+    shape.lineTo(-hw, splitY);
+
+    return shape;
   }
 
   /**
@@ -102,16 +334,39 @@ export class TubeGeometryBuilder {
   }
 
   /**
+   * Rotate a 2D shape 90° counter-clockwise: (x, y) → (-y, x).
+   * ExtrudeGeometry maps shape X → curve Frenet normal (which points DOWN for
+   * horizontal curves). Our shapes define +Y as "up" (diffuser side).
+   * This rotation maps shape +Y → shape -X → -normal → world UP.
+   */
+  static _rotateShapeCCW90(shape) {
+    const pts = shape.extractPoints(16).shape;
+    const rotated = new THREE.Shape();
+    for (let i = 0; i < pts.length; i++) {
+      const rx = -pts[i].y;
+      const ry = pts[i].x;
+      if (i === 0) rotated.moveTo(rx, ry);
+      else rotated.lineTo(rx, ry);
+    }
+    return rotated;
+  }
+
+  /**
    * Extrude a shape along a curve path.
    */
   static _extrudeAlongCurve(shape, curve, tubeModel) {
+    // Rotate shape so +Y (diffuser/up) maps to world up
+    // Frenet normal points DOWN for horizontal curves, so CCW rotation
+    // maps shape +Y → shape -X → -normal → world UP
+    const rotated = this._rotateShapeCCW90(shape);
+
     // For uv-mapped mode: at least as many steps as pixels, keep smooth rendering
     const normalSteps = CurveBuilder.getExtrudeSteps(curve);
     const pixelCount = Math.max(1, Math.round(CurveBuilder.getLength(curve) * tubeModel.pixelsPerMeter));
     const steps = tubeModel.pixelMode === 'uv-mapped'
       ? Math.max(normalSteps, pixelCount)
       : normalSteps;
-    const geometry = new THREE.ExtrudeGeometry(shape, {
+    const geometry = new THREE.ExtrudeGeometry(rotated, {
       steps: steps,
       bevelEnabled: false,
       extrudePath: curve,

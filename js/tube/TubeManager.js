@@ -352,6 +352,7 @@ export class TubeManager {
       widthMm: tube.widthMm,
       heightMm: tube.heightMm,
       wallThicknessMm: tube.wallThicknessMm,
+      diffuserShape: tube.diffuserShape,
       materialPreset: tube.materialPreset,
       pixelMode: tube.pixelMode,
       pixelsPerMeter: tube.pixelsPerMeter,
@@ -486,13 +487,29 @@ export class TubeManager {
     const group = new THREE.Group();
     group.name = `Tube_${tube.id}`;
 
-    // Body mesh
-    const geometry = TubeGeometryBuilder.build(curve, tube);
-    const material = TubeMaterialFactory.createTubeMaterial(tube.materialPreset);
-    const bodyMesh = new THREE.Mesh(geometry, material);
-    bodyMesh.name = `Tube_${tube.id}_Body`;
-    group.add(bodyMesh);
-    tube.bodyMesh = bodyMesh;
+    // Body mesh — check for split geometry (dome profiles: base housing + diffuser)
+    const split = TubeGeometryBuilder.buildSplit(curve, tube);
+    if (split) {
+      const baseMat = TubeMaterialFactory.createBaseMaterial();
+      const baseMesh = new THREE.Mesh(split.base, baseMat);
+      baseMesh.name = `Tube_${tube.id}_Base`;
+      group.add(baseMesh);
+      tube.baseMesh = baseMesh;
+
+      const diffuserMat = TubeMaterialFactory.createTubeMaterial(tube.materialPreset);
+      const bodyMesh = new THREE.Mesh(split.diffuser, diffuserMat);
+      bodyMesh.name = `Tube_${tube.id}_Body`;
+      group.add(bodyMesh);
+      tube.bodyMesh = bodyMesh;
+    } else {
+      const geometry = TubeGeometryBuilder.build(curve, tube);
+      const material = TubeMaterialFactory.createTubeMaterial(tube.materialPreset);
+      const bodyMesh = new THREE.Mesh(geometry, material);
+      bodyMesh.name = `Tube_${tube.id}_Body`;
+      group.add(bodyMesh);
+      tube.bodyMesh = bodyMesh;
+      tube.baseMesh = null;
+    }
 
     // Pixel group (skip for uv-mapped mode and placeholders — no viewport spheres)
     if (tube.pixelMode === 'uv-mapped' || tube.isPlaceholder) {
@@ -551,6 +568,7 @@ export class TubeManager {
     this.rootGroup.remove(tube.group);
     tube.group = null;
     tube.bodyMesh = null;
+    tube.baseMesh = null;
     tube.pixelGroup = null;
     tube.controlPointHelpers = [];
   }
@@ -559,9 +577,13 @@ export class TubeManager {
    * Get all body meshes (for raycasting selection).
    */
   getBodyMeshes() {
-    return this.tubes
-      .filter(t => t.bodyMesh && t.visible)
-      .map(t => t.bodyMesh);
+    const meshes = [];
+    for (const t of this.tubes) {
+      if (!t.visible) continue;
+      if (t.bodyMesh) meshes.push(t.bodyMesh);
+      if (t.baseMesh) meshes.push(t.baseMesh);
+    }
+    return meshes;
   }
 
   /**

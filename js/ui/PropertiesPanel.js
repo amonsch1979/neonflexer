@@ -205,6 +205,23 @@ export class PropertiesPanel {
       }
     ));
 
+    // Diffuser shape (only for square/rect profiles)
+    if (tube.profile === 'square' || tube.profile === 'rect') {
+      this._row(csGroup, 'Diffuser', this._select(
+        [
+          { value: 'flat', label: 'Flat' },
+          { value: 'square', label: 'Square' },
+          { value: 'dome', label: 'Dome' },
+        ],
+        tube.diffuserShape || 'flat',
+        (val) => {
+          tube.diffuserShape = val;
+          this._emit('diffuserShape');
+          this._build();
+        }
+      ));
+    }
+
     if (tube.profile === 'round' || tube.profile === 'square') {
       this._row(csGroup, 'Diameter', this._numberInput(tube.diameterMm, 4, 50, 0.5, 'mm', (val) => {
         tube.diameterMm = val;
@@ -793,6 +810,25 @@ export class PropertiesPanel {
     ));
 
     const effectiveProfile = mixedProfile || tubes[0].profile;
+
+    // Diffuser shape (only for square/rect profiles)
+    if (effectiveProfile === 'square' || effectiveProfile === 'rect') {
+      const mixedDiffuser = this._getMixedValue(tubes, 'diffuserShape');
+      this._row(csGroup, 'Diffuser', this._select(
+        [
+          { value: 'flat', label: 'Flat' },
+          { value: 'square', label: 'Square' },
+          { value: 'dome', label: 'Dome' },
+        ],
+        mixedDiffuser || tubes[0].diffuserShape || 'flat',
+        (val) => {
+          for (const tube of tubes) tube.diffuserShape = val;
+          this._emitBatch('diffuserShape');
+          this._buildMulti();
+        }
+      ));
+    }
+
     if (effectiveProfile === 'round' || effectiveProfile === 'square') {
       const mixedDia = this._getMixedValue(tubes, 'diameterMm');
       this._row(csGroup, 'Diameter', this._numberInput(

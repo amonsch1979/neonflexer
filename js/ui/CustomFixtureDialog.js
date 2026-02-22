@@ -18,6 +18,7 @@ export class CustomFixtureDialog {
       pixelsPerMeter: 60,
       dmxChannelsPerPixel: 3,
       materialPreset: 'milky',
+      diffuserShape: 'flat',
       enableMaxLength: false,
       maxLengthMm: 6000,
       connectorDiameterMm: 30,
@@ -114,6 +115,20 @@ export class CustomFixtureDialog {
       },
       'cfg-profile'
     ));
+
+    // Diffuser shape (only for square/rect profiles)
+    if (cfg.profile === 'square' || cfg.profile === 'rect') {
+      this._formRow(csSection, 'Diffuser', this._select(
+        [
+          { value: 'flat', label: 'Flat' },
+          { value: 'square', label: 'Square' },
+          { value: 'dome', label: 'Dome' },
+        ],
+        cfg.diffuserShape || 'flat',
+        null,
+        'cfg-diffuser'
+      ));
+    }
 
     // Diameter / Width+Height
     if (cfg.profile === 'round' || cfg.profile === 'square') {
@@ -267,12 +282,15 @@ export class CustomFixtureDialog {
       pixelsPerMeter = parseInt(ppmSelect.value);
     }
 
+    const diffuserShape = g('cfg-diffuser') || this._lastConfig.diffuserShape || 'flat';
+
     const result = {
       label: 'Custom',
       profile,
       diameterMm: parseFloat(g('cfg-diameter')) || this._lastConfig.diameterMm,
       widthMm: parseFloat(g('cfg-width')) || this._lastConfig.widthMm,
       heightMm: parseFloat(g('cfg-height')) || this._lastConfig.heightMm,
+      diffuserShape,
       pixelsPerMeter,
       dmxChannelsPerPixel: parseInt(g('cfg-chperpx')) || 3,
       materialPreset: g('cfg-material') || 'milky',
@@ -287,6 +305,7 @@ export class CustomFixtureDialog {
       diameterMm: result.diameterMm,
       widthMm: result.widthMm,
       heightMm: result.heightMm,
+      diffuserShape: result.diffuserShape,
       pixelsPerMeter: result.pixelsPerMeter,
       dmxChannelsPerPixel: result.dmxChannelsPerPixel,
       materialPreset: result.materialPreset,

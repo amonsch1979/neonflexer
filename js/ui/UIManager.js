@@ -563,13 +563,14 @@ export class UIManager {
       if (presetObj.pixelsPerMeter != null) tube.pixelsPerMeter = presetObj.pixelsPerMeter;
       if (presetObj.dmxChannelsPerPixel != null) tube.dmxChannelsPerPixel = presetObj.dmxChannelsPerPixel;
       if (presetObj.materialPreset != null) tube.materialPreset = presetObj.materialPreset;
+      if (presetObj.diffuserShape != null) tube.diffuserShape = presetObj.diffuserShape;
       this.app.tubeManager.updateTube(tube);
       this.propertiesPanel.show(tube);
     }
 
-    const statusEl = document.getElementById('status-text');
-    const extra = presetObj.maxLengthM ? ` — Max ${Math.round(presetObj.maxLengthM * 1000)}mm (auto-segments)` : '';
-    if (statusEl) statusEl.textContent = `Custom fixture configured${extra} — ready to draw`;
+    // Switch to click-place drawing mode immediately
+    this.toolbar.setTool('click-place');
+    this._onToolChange('click-place');
   }
 
   _onCustomFixtureCancel() {
@@ -590,6 +591,7 @@ export class UIManager {
     // Apply group-wide property changes to all group members
     const groupProps = new Set([
       'diameterMm', 'widthMm', 'heightMm', 'wallThicknessMm', 'profile',
+      'diffuserShape',
       'materialPreset', 'pixelsPerMeter', 'dmxChannelsPerPixel', 'pixelMode',
       'pixelColor', 'pixelEmissive', 'tension',
       'isPlaceholder', 'facingDirection', 'placeholderName',
@@ -2401,7 +2403,7 @@ export class UIManager {
           </div>
         </div>
         <div style="padding:12px 20px;border-top:1px solid var(--border);text-align:center;">
-          <a href="about.html" target="_blank" style="color:var(--accent);font-size:13px;font-weight:600;text-decoration:none;">Release Notes &amp; Info — Beta v1.2.1</a>
+          <a href="about.html" target="_blank" style="color:var(--accent);font-size:13px;font-weight:600;text-decoration:none;">Release Notes &amp; Info — Beta v1.3.0</a>
           <div style="margin-top:6px;font-size:11px;color:var(--text-muted);">BYFEIGNASSE | MAGICTOOLBOX</div>
         </div>
       </div>

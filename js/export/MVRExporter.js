@@ -106,10 +106,12 @@ export class MVRExporter {
 
       if (tube.pixelMode === 'uv-mapped') {
         // Split into parts for Capture's 512-channel texture generator limit
+        // Handles both diffuser UV-mapping and housing export internally
         this._addUVMappedParts(root, tube);
       } else {
+        // Diffuser mesh (transmissive material with chosen preset)
         const bodyMat = tube.bodyMesh.material.clone();
-        bodyMat.name = `${tube.name}_Body_${tube.materialPreset}`;
+        bodyMat.name = `${tube.name}_Diffuser_${tube.materialPreset}`;
         // Frosted material — high roughness so Capture shows frost 100%
         bodyMat.roughness = 1.0;
         bodyMat.metalness = 0.0;
@@ -117,8 +119,20 @@ export class MVRExporter {
           tube.bodyMesh.geometry.clone(),
           bodyMat
         );
-        bodyClone.name = `Tube_${tube.id}_Body`;
+        bodyClone.name = `Tube_${tube.id}_Diffuser`;
         root.add(bodyClone);
+
+        // Housing mesh (opaque black) — present for split-profile tubes
+        if (tube.baseMesh) {
+          const baseMat = tube.baseMesh.material.clone();
+          baseMat.name = `${tube.name}_Housing`;
+          const baseClone = new THREE.Mesh(
+            tube.baseMesh.geometry.clone(),
+            baseMat
+          );
+          baseClone.name = `Tube_${tube.id}_Housing`;
+          root.add(baseClone);
+        }
       }
     }
 
@@ -164,7 +178,7 @@ export class MVRExporter {
 
   /**
    * Split a UV-mapped tube into parts that fit Capture's 512-channel limit.
-   * Each part is a separate mesh with its own material name showing pixel count.
+   * Only the diffuser gets UV-mapping; housing is added as a separate non-UV-mapped mesh.
    */
   static _addUVMappedParts(root, tube) {
     const curve = CurveBuilder.build(tube.controlPoints, tube.tension, tube.closed);
@@ -180,6 +194,9 @@ export class MVRExporter {
     const maxPxPerPart = Math.floor(512 / chPerPixel);
     const numParts = Math.ceil(activePx / maxPxPerPart);
 
+    // Check if this tube has split geometry (square/rect with housing + diffuser)
+    const hasSplit = tube.baseMesh != null;
+
     for (let p = 0; p < numParts; p++) {
       const partStartPx = p * maxPxPerPart;
       const partEndPx = Math.min(partStartPx + maxPxPerPart, activePx);
@@ -188,11 +205,15 @@ export class MVRExporter {
       const tStart = tOffset + (partStartPx / totalPixels);
       const tEnd = tOffset + (partEndPx / totalPixels);
 
-      // Create sub-curve — TubeGeometry on this will have UVs 0→1 for this section
+      // Create sub-curve — geometry on this will have UVs 0→1 for this section
       const subCurve = new SubCurve(curve, tStart, tEnd);
 
-      // Build geometry using the standard builder (handles all profiles, skips caps)
-      const partGeo = TubeGeometryBuilder.build(subCurve, tube);
+      // For split profiles: UV-map only the diffuser shape, not the full profile
+      const partGeo = hasSplit
+        ? TubeGeometryBuilder.buildDiffuserOnly(subCurve, tube)
+        : TubeGeometryBuilder.build(subCurve, tube);
+
+      if (!partGeo) continue;
 
       const mat = tube.bodyMesh.material.clone();
       // Frosted material — high roughness so Capture shows frost 100%
@@ -201,11 +222,23 @@ export class MVRExporter {
       const partLabel = numParts > 1
         ? `_PT${p + 1}_${partPx}px`
         : `_${activePx}px`;
-      mat.name = `${tube.name}_${tube.materialPreset}${partLabel}`;
+      mat.name = `${tube.name}_Diffuser_${tube.materialPreset}${partLabel}`;
 
       const mesh = new THREE.Mesh(partGeo, mat);
-      mesh.name = `Tube_${tube.id}${partLabel}`;
+      mesh.name = `Tube_${tube.id}_Diffuser${partLabel}`;
       root.add(mesh);
+    }
+
+    // Housing mesh for UV-mapped tubes — single non-UV-mapped extrusion along full curve
+    if (hasSplit) {
+      const housingGeo = TubeGeometryBuilder.buildHousingOnly(curve, tube);
+      if (housingGeo) {
+        const baseMat = tube.baseMesh.material.clone();
+        baseMat.name = `${tube.name}_Housing`;
+        const housingMesh = new THREE.Mesh(housingGeo, baseMat);
+        housingMesh.name = `Tube_${tube.id}_Housing`;
+        root.add(housingMesh);
+      }
     }
   }
 
@@ -217,10 +250,42 @@ export class MVRExporter {
       if (tube.isPlaceholder || tube.pixelMode === 'uv-mapped') { result.push([]); continue; }
       const curve = CurveBuilder.build(tube.controlPoints, tube.tension, tube.closed);
       if (!curve) { result.push([]); continue; }
-      const { points } = CurveBuilder.getPixelPoints(curve, tube.pixelsPerMeter);
+      const { points, count } = CurveBuilder.getPixelPoints(curve, tube.pixelsPerMeter);
+
+      // For square/rect: offset pixels to inner bottom of housing (same as viewport)
+      let offsetDist = 0;
+      if (tube.profile === 'square') {
+        offsetDist = tube.outerRadius - tube.wallThicknessMm * 0.001;
+      } else if (tube.profile === 'rect') {
+        offsetDist = tube.heightM / 2 - tube.wallThicknessMm * 0.001;
+      }
+
       // Skip startPixel pixels from the beginning
       const startPx = tube.startPixel || 0;
-      result.push(startPx > 0 ? points.slice(startPx) : points);
+      const pixelData = [];
+      for (let i = startPx; i < points.length; i++) {
+        // t matches CurveBuilder formula: centered pixels at (i + 0.5) / count
+        const t = count === 1 ? 0.5 : (i + 0.5) / count;
+        const tClamped = Math.min(Math.max(t, 0.001), 0.999);
+        // Compute beam direction: normal of cross-section (toward diffuser = "up")
+        const tangent = curve.getTangentAt(tClamped).normalize();
+        // Reference up — use world Y unless tangent is nearly parallel
+        const refUp = new THREE.Vector3(0, 1, 0);
+        if (Math.abs(tangent.dot(refUp)) > 0.99) refUp.set(1, 0, 0);
+        // Normal = component of refUp perpendicular to tangent
+        const normal = refUp.clone().sub(tangent.clone().multiplyScalar(refUp.dot(tangent))).normalize();
+
+        // Offset position to housing floor (in -normal direction = away from diffuser)
+        const pos = points[i].clone();
+        if (offsetDist > 0) {
+          pos.x -= normal.x * offsetDist;
+          pos.y -= normal.y * offsetDist;
+          pos.z -= normal.z * offsetDist;
+        }
+
+        pixelData.push({ pos, normal, tangent: tangent.clone() });
+      }
+      result.push(pixelData);
     }
     return result;
   }
@@ -532,12 +597,31 @@ export class MVRExporter {
         // Build pixel fixtures (skip for uv-mapped tubes)
         const pixelNameOffset = tube.startPixel || 0;
         for (let pi = 0; pi < (tube.pixelMode === 'uv-mapped' ? 0 : pixels.length); pi++) {
-          const pos = pixels[pi];
+          const px = pixels[pi];
+          const pos = px.pos;
           const uuid = this._uuid();
-          // Convert Three.js (Y-up) to MVR (Z-up) in millimeters
-          const x = (pos.x * 1000).toFixed(1);
-          const y = (-pos.z * 1000).toFixed(1);
-          const z = (pos.y * 1000).toFixed(1);
+
+          // Build rotation matrix so GDTF beam (-Z) points toward diffuser
+          // Fixture local: X=tangent, Z=opposite of beam, Y=cross product
+          // Beam direction = normal (toward diffuser), so fixture Z = -normal
+          const T = px.tangent;
+          const beam = px.normal; // toward diffuser
+          const fZ = beam.clone().negate(); // fixture +Z = opposite of beam direction
+          const fY = new THREE.Vector3().crossVectors(fZ, T).normalize();
+
+          // Convert to MVR coordinates: Three.js Y-up → MVR Z-up (x=x, y=-z, z=y)
+          const toMVR = (v) => ({ x: v.x, y: -v.z, z: v.y });
+          const row1 = toMVR(T);
+          const row2 = toMVR(fY);
+          const row3 = toMVR(fZ);
+
+          // Position in MVR mm
+          const tx = pos.x * 1000;
+          const ty = -pos.z * 1000;
+          const tz = pos.y * 1000;
+
+          const f = (n) => n.toFixed(6);
+          const matrix = `{${f(row1.x)},${f(row1.y)},${f(row1.z)}}{${f(row2.x)},${f(row2.y)},${f(row2.z)}}{${f(row3.x)},${f(row3.y)},${f(row3.z)}}{${tx.toFixed(1)},${ty.toFixed(1)},${tz.toFixed(1)}}`;
 
           // If this fixture won't fit in current universe, jump to next
           const addrInUni = ((absoluteAddr - 1) % 512) + 1;
@@ -547,7 +631,7 @@ export class MVRExporter {
 
           pixelFixtures += `
             <Fixture name="${tubeName}_Pixel_${pi + pixelNameOffset}" uuid="${uuid}">
-              <Matrix>{1,0,0}{0,1,0}{0,0,1}{${x},${y},${z}}</Matrix>
+              <Matrix>${matrix}</Matrix>
               <GDTFSpec>GenericLED.gdtf</GDTFSpec>
               <GDTFMode>${gdtfMode}</GDTFMode>
               <Addresses>

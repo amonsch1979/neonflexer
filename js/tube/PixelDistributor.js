@@ -37,20 +37,51 @@ export class PixelDistributor {
 
     // Skip startPixel pixels from the beginning of the curve
     const startPx = tubeModel.startPixel || 0;
-    const activePoints = startPx > 0 ? points.slice(startPx) : points;
-    if (activePoints.length === 0) return group;
+    const activeStartIndex = startPx;
+    const activeCount = points.length - startPx;
+    if (activeCount <= 0) return group;
 
     // Pixel size = 30% of inner radius
     const pixelSize = Math.max(0.001, tubeModel.innerRadius * 0.3);
+
+    // For square/rect profiles: offset pixels to sit on inner floor of housing
+    // (half-height minus wall thickness minus pixel radius so sphere stays inside)
+    let offsetDist = 0;
+    if (tubeModel.profile === 'square') {
+      offsetDist = tubeModel.outerRadius - tubeModel.wallThicknessMm * 0.001 - pixelSize;
+    } else if (tubeModel.profile === 'rect') {
+      offsetDist = tubeModel.heightM / 2 - tubeModel.wallThicknessMm * 0.001 - pixelSize;
+    }
     const pixelMaterial = TubeMaterialFactory.createPixelMaterial(tubeModel.pixelColor, tubeModel.pixelEmissive);
     const pixelGeo = new THREE.SphereGeometry(pixelSize, 8, 8);
 
     // Single InstancedMesh for all pixels — one draw call
-    const instancedMesh = new THREE.InstancedMesh(pixelGeo, pixelMaterial, activePoints.length);
+    const instancedMesh = new THREE.InstancedMesh(pixelGeo, pixelMaterial, activeCount);
     instancedMesh.name = `Tube_${tubeModel.id}_PixelsInstanced`;
 
-    for (let i = 0; i < activePoints.length; i++) {
-      _matrix.makeTranslation(activePoints[i].x, activePoints[i].y, activePoints[i].z);
+    const _refUp = new THREE.Vector3();
+    for (let i = 0; i < activeCount; i++) {
+      const pi = activeStartIndex + i;
+      const pos = points[pi];
+
+      if (offsetDist > 0) {
+        // Compute curve normal (up/diffuser direction) at this pixel
+        const t = count === 1 ? 0.5 : (pi + 0.5) / count;
+        const tClamped = Math.min(Math.max(t, 0.001), 0.999);
+        const tangent = curve.getTangentAt(tClamped).normalize();
+        _refUp.set(0, 1, 0);
+        if (Math.abs(tangent.dot(_refUp)) > 0.99) _refUp.set(1, 0, 0);
+        const normal = _refUp.clone().sub(tangent.clone().multiplyScalar(_refUp.dot(tangent))).normalize();
+        // Offset pixel in -normal direction (toward housing bottom)
+        _matrix.makeTranslation(
+          pos.x - normal.x * offsetDist,
+          pos.y - normal.y * offsetDist,
+          pos.z - normal.z * offsetDist
+        );
+      } else {
+        _matrix.makeTranslation(pos.x, pos.y, pos.z);
+      }
+
       instancedMesh.setMatrixAt(i, _matrix);
     }
     instancedMesh.instanceMatrix.needsUpdate = true;

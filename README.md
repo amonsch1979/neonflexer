@@ -1,4 +1,4 @@
-# MAGICTOOLBOX NEONFLEXER — Beta v1.2.1
+# MAGICTOOLBOX NEONFLEXER — Beta v1.3.0
 
 3D NeonFlex LED tube designer for lighting professionals. Draw tubes in 3D, configure LED pixels, set DMX patch, and export as MVR for direct import into Capture, WYSIWYG, Depence, or any MVR-compatible visualizer.
 
@@ -19,8 +19,10 @@
 ### Tube Configuration
 - **Cross Sections** — Round, square, or rectangular profiles
 - **Preset Sizes** — 10mm, 12mm, 16mm, 20mm, 25mm round / 6x12, 8x16 flat
-- **Materials** — PBR silicone presets: Dark, Clear, Milky White, Frosted (with transmission)
-- **Wall Thickness** — Adjustable per tube (affects inner pixel sizing)
+- **Housing + Diffuser** — Square/rect tubes have separate black housing (open U-channel) and selectable diffuser cap
+- **Diffuser Shapes** — Flat, Square (taller cap), or Dome for square/rectangular profiles
+- **Diffuser Materials** — Choose from PBR silicone presets: Dark, Clear, Milky White, Frosted (with transmission)
+- **Wall Thickness** — Adjustable per tube (affects housing channel depth and inner pixel sizing)
 
 ### LED Pixels & Pixel Modes
 Each tube has a **Pixel Mode** selector in the Properties panel:
@@ -213,12 +215,26 @@ Tube bodies are exported as **GLB meshes with clean 0→1 UV coordinates** along
 
 **In Capture:** Select the tube mesh, add a pixel/texture generator, and set the number of columns to your pixel count. Each column maps to one pixel via the UV coordinates.
 
-**Auto-split for long tubes:** Tubes exceeding 512 DMX channels (170px RGB / 128px RGBW) are automatically split into separate named meshes in the GLB (e.g. `Tube1_milky_PT1_170px`, `Tube1_milky_PT2_25px`). Apply a separate texture generator to each part in Capture.
+**Auto-split for long tubes:** Tubes exceeding 512 DMX channels (170px RGB / 128px RGBW) are automatically split into separate named meshes in the GLB (e.g. `Tube1_Diffuser_milky_PT1_170px`, `Tube1_Diffuser_milky_PT2_25px`). Apply a separate texture generator to each part in Capture.
+
+**Diffuser-only UV mapping:** For square/rect tubes with housing, only the diffuser cap gets UV-mapped. The housing is exported as a separate non-UV-mapped black mesh.
 
 ### Mixed Mode
 You can have some tubes in Discrete mode and others in UV Mapped mode in the same project. The MVR export handles both correctly — discrete tubes get fixture elements, UV-mapped tubes get clean mesh geometry only.
 
 ## Changelog
+
+### Beta v1.3.0 — Housing + Diffuser Materials, Pixel Beam Orientation
+- **Housing + Diffuser Split** — Square and rectangular tubes now render as two separate meshes: a black opaque U-channel housing and a selectable transparent diffuser cap
+- **Open U-Channel Housing** — Housing geometry is a proper open U-shape (outer walls + bottom + inner walls), not a closed box. Diffuser sits in the open top.
+- **Diffuser Shapes** — Three options for square/rect profiles: Flat (thin top strip), Square (taller cap at 40% height), Dome (semicircular arc)
+- **Separate Materials in MVR** — Housing exports as `_Housing` (opaque black) and diffuser as `_Diffuser_<preset>` (chosen transparent material) — two distinct materials in the GLB for Capture
+- **Pixel Beam Orientation** — Discrete pixel fixtures in MVR now include a per-pixel rotation matrix so the GDTF beam points toward the diffuser (up). Previously all pixels used an identity matrix.
+- **Pixel Positioning** — Pixels in square/rect tubes are placed at the inner bottom of the housing channel, not at the tube center. Both viewport and MVR export match.
+- **UV-Mapped Diffuser Only** — For UV-mapped square/rect tubes, only the diffuser mesh gets UV-mapped for Capture's texture generator. Housing is exported as a single non-UV-mapped black mesh.
+- **Apply & Draw** — Custom Fixture dialog now switches directly to Click Place drawing mode after clicking "Apply & Draw"
+- **Shape Rotation Fix** — Cross-section shapes are correctly oriented so the diffuser always faces up when extruded along curves
+- Removed Oval diffuser option (replaced by Square diffuser)
 
 ### Beta v1.2.1 — Undo/Redo, Camera Views, Isolation Mode & Trace Edges
 - **Undo / Redo** — `Ctrl+Z` / `Ctrl+Shift+Z` for all tube and connector operations (up to 50 steps)

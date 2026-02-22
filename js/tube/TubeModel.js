@@ -19,6 +19,7 @@ export class TubeModel {
     this.widthMm = options.widthMm || 8;  // width for rect
     this.heightMm = options.heightMm || 16; // height for rect
     this.wallThicknessMm = options.wallThicknessMm || 1.5;
+    this.diffuserShape = options.diffuserShape || 'flat'; // 'flat' | 'dome' | 'oval'
 
     // Material
     this.materialPreset = options.materialPreset || 'milky';
@@ -61,6 +62,7 @@ export class TubeModel {
     // Three.js group reference (set by TubeManager)
     this.group = null;
     this.bodyMesh = null;
+    this.baseMesh = null;  // housing base mesh (dome profiles only)
     this.pixelGroup = null;
     this.controlPointHelpers = [];
   }
@@ -134,6 +136,7 @@ export class TubeModel {
       widthMm: this.widthMm,
       heightMm: this.heightMm,
       wallThicknessMm: this.wallThicknessMm,
+      diffuserShape: this.diffuserShape,
       materialPreset: this.materialPreset,
       pixelMode: this.pixelMode,
       pixelsPerMeter: this.pixelsPerMeter,
@@ -166,6 +169,7 @@ export class TubeModel {
       widthMm: this.widthMm,
       heightMm: this.heightMm,
       wallThicknessMm: this.wallThicknessMm,
+      diffuserShape: this.diffuserShape,
       materialPreset: this.materialPreset,
       pixelMode: this.pixelMode,
       pixelsPerMeter: this.pixelsPerMeter,
@@ -197,6 +201,7 @@ export class TubeModel {
       widthMm: data.widthMm,
       heightMm: data.heightMm,
       wallThicknessMm: data.wallThicknessMm,
+      diffuserShape: data.diffuserShape || 'flat',
       materialPreset: data.materialPreset,
       pixelMode: data.pixelMode || 'discrete',
       pixelsPerMeter: data.pixelsPerMeter,

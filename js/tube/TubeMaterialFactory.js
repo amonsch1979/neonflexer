@@ -82,6 +82,21 @@ export class TubeMaterialFactory {
   }
 
   /**
+   * Create opaque black housing material for base channels.
+   * @returns {THREE.MeshStandardMaterial}
+   */
+  static createBaseMaterial() {
+    const mat = new THREE.MeshStandardMaterial({
+      color: 0x111111,
+      roughness: 0.7,
+      metalness: 0.1,
+      side: THREE.DoubleSide,
+    });
+    mat.name = 'NeonFlex_Housing';
+    return mat;
+  }
+
+  /**
    * Create an emissive pixel material.
    * @param {string} hexColor - hex color string like '#ffffff'
    * @returns {THREE.MeshStandardMaterial}
