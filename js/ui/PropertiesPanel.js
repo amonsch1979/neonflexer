@@ -20,6 +20,10 @@ export class PropertiesPanel {
     this.onSnapToRef = null;         // (tube) => {}
     this.onPickStartPixel = null;    // (tube) => {}
     this.onTraceRef = null;          // (shapeType) => {} — 'circle' | 'rectangle'
+    this.onMapEdges = null;          // (angleThreshold) => {}
+    this.onResize = null;            // (tube, targetLengthMm) => {}
+    this.onReverse = null;           // (tube) => {}
+    this.onShapeDimensionChange = null; // (tube, shapeType, dimensions) => {}
     this.hasRefModels = false;       // set by UIManager when ref models exist
 
     this._showEmpty();
@@ -127,6 +131,64 @@ export class PropertiesPanel {
 
     this.container.appendChild(presetGroup);
 
+    // Fixture Mode (Placeholder)
+    const modeGroup = this._group('Fixture Mode');
+
+    // Placeholder toggle
+    const phRow = document.createElement('div');
+    phRow.className = 'toggle-row';
+    const phLabel = document.createElement('span');
+    phLabel.className = 'prop-label';
+    phLabel.textContent = 'Placeholder';
+    phLabel.title = 'Generic fixture placeholder — swap with real fixture in Capture';
+    phRow.appendChild(phLabel);
+    const phToggle = document.createElement('label');
+    phToggle.className = 'toggle-switch';
+    const phCheckbox = document.createElement('input');
+    phCheckbox.type = 'checkbox';
+    phCheckbox.checked = tube.isPlaceholder;
+    phCheckbox.addEventListener('change', () => {
+      tube.isPlaceholder = phCheckbox.checked;
+      this._emit('isPlaceholder');
+      this._build();
+    });
+    const phSlider = document.createElement('span');
+    phSlider.className = 'toggle-slider';
+    phToggle.appendChild(phCheckbox);
+    phToggle.appendChild(phSlider);
+    phRow.appendChild(phToggle);
+    modeGroup.appendChild(phRow);
+
+    // Facing direction + fixture name (only when placeholder ON)
+    if (tube.isPlaceholder) {
+      const nameInput = document.createElement('input');
+      nameInput.type = 'text';
+      nameInput.className = 'prop-input';
+      nameInput.placeholder = 'e.g. LX100, Sceptron 1m';
+      nameInput.value = tube.placeholderName || '';
+      nameInput.addEventListener('change', () => {
+        tube.placeholderName = nameInput.value.trim();
+        this._emit('placeholderName');
+      });
+      this._row(modeGroup, 'Fixture', nameInput);
+
+      this._row(modeGroup, 'Facing', this._select(
+        [
+          { value: 'up', label: 'Up' },
+          { value: 'down', label: 'Down' },
+          { value: 'inward', label: 'Inward' },
+          { value: 'outward', label: 'Outward' },
+        ],
+        tube.facingDirection || 'up',
+        (val) => {
+          tube.facingDirection = val;
+          this._emit('facingDirection');
+        }
+      ));
+    }
+
+    this.container.appendChild(modeGroup);
+
     // Cross Section
     const csGroup = this._group('Cross Section');
     this._row(csGroup, 'Profile', this._select(
@@ -228,7 +290,8 @@ export class PropertiesPanel {
     }));
     this.container.appendChild(matGroup);
 
-    // Pixels
+    // Pixels (hidden for placeholders — they have no pixel data)
+    if (!tube.isPlaceholder) {
     const pxGroup = this._group('Pixels');
 
     // Pixel mode selector
@@ -383,6 +446,7 @@ export class PropertiesPanel {
     }
 
     this.container.appendChild(pxGroup);
+    } // end if (!tube.isPlaceholder)
 
     // DMX / Patch
     const dmxGroup = this._group('DMX Patch');
@@ -419,40 +483,52 @@ export class PropertiesPanel {
       }
     ));
 
-    // Show computed patch summary using same absolute math as MVR exporter
+    // Show computed patch summary
     if (tube.isValid) {
-      const curve = CurveBuilder.build(tube.controlPoints, tube.tension, tube.closed);
-      if (curve) {
-        const length = CurveBuilder.getLength(curve);
-        const totalPixels = Math.max(1, Math.round(length * tube.pixelsPerMeter));
-        const activePx = Math.max(1, totalPixels - (tube.startPixel || 0));
-        const ch = Number(tube.dmxChannelsPerPixel) || 3;
+      if (tube.isPlaceholder) {
+        // Placeholder: single fixture, simple summary
         const startUni = Number(tube.dmxUniverse) || 1;
         const startAddr = Number(tube.dmxAddress) || 1;
-
-        let absCh = (startUni - 1) * 512 + (startAddr - 1);
-        let lastUni = startUni, lastAddr = startAddr;
-        for (let i = 0; i < activePx; i++) {
-          const aiu = (absCh % 512) + 1;
-          if (aiu + ch - 1 > 512) {
-            absCh = (Math.floor(absCh / 512) + 1) * 512;
-          }
-          lastUni = Math.floor(absCh / 512) + 1;
-          lastAddr = (absCh % 512) + 1;
-          absCh += ch;
-        }
-        const lastEnd = lastAddr + ch - 1;
-        const totalCh = activePx * ch;
-        const universeCount = lastUni - startUni + 1;
-
+        const ch = Number(tube.dmxChannelsPerPixel) || 4;
         const summary = document.createElement('div');
         summary.className = 'prop-row';
-        summary.style.flexWrap = 'wrap';
-        const rangeText = universeCount > 1
-          ? `${activePx}px → U${startUni}.${startAddr} – U${lastUni}.${lastEnd} (${totalCh}ch, ${universeCount} uni)`
-          : `${activePx}px → U${startUni}.${startAddr} – .${lastEnd} (${totalCh}ch)`;
-        summary.innerHTML = `<span class="prop-label">Range</span><span style="font-size:11px;font-family:var(--font-mono);color:var(--accent-dim)">${rangeText}</span>`;
+        summary.innerHTML = `<span class="prop-label">Range</span><span style="font-size:11px;font-family:var(--font-mono);color:var(--accent-dim)">1 fixture → U${startUni}.${startAddr} (${ch}ch)</span>`;
         dmxGroup.appendChild(summary);
+      } else {
+        // Pixel-based summary using same absolute math as MVR exporter
+        const curve = CurveBuilder.build(tube.controlPoints, tube.tension, tube.closed);
+        if (curve) {
+          const length = CurveBuilder.getLength(curve);
+          const totalPixels = Math.max(1, Math.round(length * tube.pixelsPerMeter));
+          const activePx = Math.max(1, totalPixels - (tube.startPixel || 0));
+          const ch = Number(tube.dmxChannelsPerPixel) || 3;
+          const startUni = Number(tube.dmxUniverse) || 1;
+          const startAddr = Number(tube.dmxAddress) || 1;
+
+          let absCh = (startUni - 1) * 512 + (startAddr - 1);
+          let lastUni = startUni, lastAddr = startAddr;
+          for (let i = 0; i < activePx; i++) {
+            const aiu = (absCh % 512) + 1;
+            if (aiu + ch - 1 > 512) {
+              absCh = (Math.floor(absCh / 512) + 1) * 512;
+            }
+            lastUni = Math.floor(absCh / 512) + 1;
+            lastAddr = (absCh % 512) + 1;
+            absCh += ch;
+          }
+          const lastEnd = lastAddr + ch - 1;
+          const totalCh = activePx * ch;
+          const universeCount = lastUni - startUni + 1;
+
+          const summary = document.createElement('div');
+          summary.className = 'prop-row';
+          summary.style.flexWrap = 'wrap';
+          const rangeText = universeCount > 1
+            ? `${activePx}px → U${startUni}.${startAddr} – U${lastUni}.${lastEnd} (${totalCh}ch, ${universeCount} uni)`
+            : `${activePx}px → U${startUni}.${startAddr} – .${lastEnd} (${totalCh}ch)`;
+          summary.innerHTML = `<span class="prop-label">Range</span><span style="font-size:11px;font-family:var(--font-mono);color:var(--accent-dim)">${rangeText}</span>`;
+          dmxGroup.appendChild(summary);
+        }
       }
     }
 
@@ -503,21 +579,72 @@ export class PropertiesPanel {
       this.container.appendChild(toolsGroup);
     }
 
-    // Info
+    // Shape Dimensions (for circles and rectangles)
+    if (tube.isValid && tube.closed) {
+      const shapeInfo = this._detectShape(tube);
+      if (shapeInfo) {
+        const shapeGroup = this._group('Shape Dimensions');
+        if (shapeInfo.type === 'circle') {
+          const diamMm = Math.round(shapeInfo.diameter * 1000);
+          this._row(shapeGroup, 'Diameter', this._numberInput(diamMm, 10, 99999, 1, 'mm', (val) => {
+            if (this.onShapeDimensionChange) {
+              this.onShapeDimensionChange(tube, 'circle', { diameter: val / 1000 });
+            }
+            setTimeout(() => this._build(), 50);
+          }));
+          const radiusMm = Math.round(shapeInfo.diameter * 500);
+          const radiusInfo = document.createElement('div');
+          radiusInfo.className = 'prop-row';
+          radiusInfo.innerHTML = `<span class="prop-label">Radius</span><span style="font-size:12px; font-family:var(--font-mono)">${radiusMm}mm</span>`;
+          shapeGroup.appendChild(radiusInfo);
+        } else if (shapeInfo.type === 'rectangle') {
+          const wMm = Math.round(shapeInfo.width * 1000);
+          const hMm = Math.round(shapeInfo.height * 1000);
+          this._row(shapeGroup, 'Width', this._numberInput(wMm, 10, 99999, 1, 'mm', (val) => {
+            if (this.onShapeDimensionChange) {
+              this.onShapeDimensionChange(tube, 'rectangle', { width: val / 1000, height: shapeInfo.height });
+            }
+            setTimeout(() => this._build(), 50);
+          }));
+          this._row(shapeGroup, 'Height', this._numberInput(hMm, 10, 99999, 1, 'mm', (val) => {
+            if (this.onShapeDimensionChange) {
+              this.onShapeDimensionChange(tube, 'rectangle', { width: shapeInfo.width, height: val / 1000 });
+            }
+            setTimeout(() => this._build(), 50);
+          }));
+        }
+        this.container.appendChild(shapeGroup);
+      }
+    }
+
+    // Info + Edit
     if (tube.isValid) {
       const infoGroup = this._group('Info');
       const curve = CurveBuilder.build(tube.controlPoints, tube.tension, tube.closed);
       const lengthMm = curve ? Math.round(CurveBuilder.getLength(curve) * 1000) : 0;
 
-      const lenInfo = document.createElement('div');
-      lenInfo.className = 'prop-row';
-      lenInfo.innerHTML = `<span class="prop-label">Length</span><span style="font-size:12px; font-family:var(--font-mono)">${lengthMm}mm</span>`;
-      infoGroup.appendChild(lenInfo);
+      // Editable length — type a target length to resize
+      this._row(infoGroup, 'Length', this._numberInput(lengthMm, 10, 99999, 1, 'mm', (val) => {
+        if (this.onResize) this.onResize(tube, val);
+        // Rebuild after resize to show updated values
+        setTimeout(() => this._build(), 50);
+      }));
 
       const ptsInfo = document.createElement('div');
       ptsInfo.className = 'prop-row';
       ptsInfo.innerHTML = `<span class="prop-label">Points</span><span style="font-size:12px; font-family:var(--font-mono)">${tube.controlPoints.length}</span>`;
       infoGroup.appendChild(ptsInfo);
+
+      // Reverse button
+      const reverseBtn = document.createElement('button');
+      reverseBtn.className = 'btn btn-block';
+      reverseBtn.textContent = 'Reverse Direction';
+      reverseBtn.title = 'Flip start/end (affects DMX addressing, pixel order)';
+      reverseBtn.addEventListener('click', () => {
+        if (this.onReverse) this.onReverse(tube);
+        this._build();
+      });
+      infoGroup.appendChild(reverseBtn);
 
       this.container.appendChild(infoGroup);
     }
@@ -588,6 +715,66 @@ export class PropertiesPanel {
     ));
     this.container.appendChild(presetGroup);
 
+    // Fixture Mode (Placeholder)
+    const modeGroup = this._group('Fixture Mode');
+    const mixedPh = this._getMixedValue(tubes, 'isPlaceholder');
+    const phRow = document.createElement('div');
+    phRow.className = 'toggle-row';
+    const phLabel = document.createElement('span');
+    phLabel.className = 'prop-label';
+    phLabel.textContent = 'Placeholder';
+    phLabel.title = 'Generic fixture placeholder — swap with real fixture in Capture';
+    phRow.appendChild(phLabel);
+    const phToggle = document.createElement('label');
+    phToggle.className = 'toggle-switch';
+    const phCb = document.createElement('input');
+    phCb.type = 'checkbox';
+    phCb.checked = mixedPh != null ? mixedPh : tubes[0].isPlaceholder;
+    phCb.addEventListener('change', () => {
+      for (const tube of tubes) tube.isPlaceholder = phCb.checked;
+      this._emitBatch('isPlaceholder');
+      this._buildMulti();
+    });
+    const phSlider = document.createElement('span');
+    phSlider.className = 'toggle-slider';
+    phToggle.appendChild(phCb);
+    phToggle.appendChild(phSlider);
+    phRow.appendChild(phToggle);
+    modeGroup.appendChild(phRow);
+
+    // Fixture name + facing direction
+    const anyPlaceholder = tubes.some(t => t.isPlaceholder);
+    if (anyPlaceholder) {
+      const nameInput = document.createElement('input');
+      nameInput.type = 'text';
+      nameInput.className = 'prop-input';
+      nameInput.placeholder = 'e.g. LX100, Sceptron 1m';
+      const mixedName = this._getMixedValue(tubes, 'placeholderName');
+      nameInput.value = mixedName != null ? mixedName : (tubes[0].placeholderName || '');
+      nameInput.addEventListener('change', () => {
+        const val = nameInput.value.trim();
+        for (const tube of tubes) tube.placeholderName = val;
+        this._emitBatch('placeholderName');
+      });
+      this._row(modeGroup, 'Fixture', nameInput);
+
+      const mixedFacing = this._getMixedValue(tubes, 'facingDirection');
+      this._row(modeGroup, 'Facing', this._select(
+        [
+          { value: 'up', label: 'Up' },
+          { value: 'down', label: 'Down' },
+          { value: 'inward', label: 'Inward' },
+          { value: 'outward', label: 'Outward' },
+        ],
+        mixedFacing || tubes[0].facingDirection || 'up',
+        (val) => {
+          for (const tube of tubes) tube.facingDirection = val;
+          this._emitBatch('facingDirection');
+        }
+      ));
+    }
+    this.container.appendChild(modeGroup);
+
     // Cross Section
     const csGroup = this._group('Cross Section');
     const mixedProfile = this._getMixedValue(tubes, 'profile');
@@ -651,8 +838,26 @@ export class PropertiesPanel {
     }));
     this.container.appendChild(matGroup);
 
-    // Pixels
+    // Pixels (hidden when all placeholders)
+    const allPlaceholders = tubes.every(t => t.isPlaceholder);
+    if (!allPlaceholders) {
     const pxGroup = this._group('Pixels');
+
+    // Mode (discrete / UV-mapped)
+    const mixedMode = this._getMixedValue(tubes, 'pixelMode');
+    this._row(pxGroup, 'Mode', this._select(
+      [
+        { value: 'discrete', label: 'Discrete Pixels' },
+        { value: 'uv-mapped', label: 'UV Mapped' },
+      ],
+      mixedMode || (tubes[0].pixelMode || 'discrete'),
+      (val) => {
+        for (const tube of tubes) tube.pixelMode = val;
+        this._emitBatch('pixelMode');
+        this._buildMulti();
+      }
+    ));
+
     const mixedPpm = this._getMixedValue(tubes, 'pixelsPerMeter');
     const pitchOptions = Object.entries(PIXEL_PITCH_PRESETS).map(([, p]) => ({
       value: String(p.pixelsPerMeter),
@@ -703,7 +908,6 @@ export class PropertiesPanel {
     ));
 
     // Pixel color + emissive (discrete mode)
-    const mixedMode = this._getMixedValue(tubes, 'pixelMode');
     const isAllDiscrete = mixedMode === 'discrete' || (mixedMode == null && tubes.every(t => (t.pixelMode || 'discrete') === 'discrete'));
     if (isAllDiscrete) {
       const mixedColor = this._getMixedValue(tubes, 'pixelColor');
@@ -737,6 +941,7 @@ export class PropertiesPanel {
     }
 
     this.container.appendChild(pxGroup);
+    } // end if (!allPlaceholders)
 
     // Curve
     const curveGroup = this._group('Curve');
@@ -962,6 +1167,63 @@ export class PropertiesPanel {
 
       traceGroup.appendChild(traceBtnRow);
       this.container.appendChild(traceGroup);
+
+      // Map Edges — auto-detect sharp edges and create tubes along them
+      const edgeGroup = this._group('Map Edges');
+      const edgeHint = document.createElement('div');
+      edgeHint.style.fontSize = '10px';
+      edgeHint.style.color = 'var(--text-muted)';
+      edgeHint.style.marginBottom = '6px';
+      edgeHint.textContent = 'Auto-detect sharp edges and create tubes';
+      edgeGroup.appendChild(edgeHint);
+
+      // Angle threshold slider
+      const angleRow = document.createElement('div');
+      angleRow.className = 'prop-row';
+      const angleLabel = document.createElement('span');
+      angleLabel.className = 'prop-label';
+      angleLabel.textContent = 'Angle';
+      angleRow.appendChild(angleLabel);
+      this._edgeAngleValue = 30;
+
+      const angleWrap = document.createElement('div');
+      angleWrap.style.display = 'flex';
+      angleWrap.style.alignItems = 'center';
+      angleWrap.style.flex = '1';
+      angleWrap.style.gap = '6px';
+      const angleSlider = document.createElement('input');
+      angleSlider.type = 'range';
+      angleSlider.className = 'prop-range';
+      angleSlider.min = 1;
+      angleSlider.max = 89;
+      angleSlider.step = 1;
+      angleSlider.value = 30;
+      const angleDisplay = document.createElement('span');
+      angleDisplay.style.fontSize = '10px';
+      angleDisplay.style.fontFamily = 'var(--font-mono)';
+      angleDisplay.style.color = 'var(--text-secondary)';
+      angleDisplay.style.minWidth = '32px';
+      angleDisplay.style.textAlign = 'right';
+      angleDisplay.textContent = '30°';
+      angleSlider.addEventListener('input', () => {
+        const v = parseInt(angleSlider.value);
+        angleDisplay.textContent = `${v}°`;
+        this._edgeAngleValue = v;
+      });
+      angleWrap.appendChild(angleSlider);
+      angleWrap.appendChild(angleDisplay);
+      angleRow.appendChild(angleWrap);
+      edgeGroup.appendChild(angleRow);
+
+      const mapEdgesBtn = document.createElement('button');
+      mapEdgesBtn.className = 'btn btn-accent btn-block';
+      mapEdgesBtn.textContent = 'Map Edges';
+      mapEdgesBtn.style.marginTop = '6px';
+      mapEdgesBtn.addEventListener('click', () => {
+        if (this.onMapEdges) this.onMapEdges(this._edgeAngleValue);
+      });
+      edgeGroup.appendChild(mapEdgesBtn);
+      this.container.appendChild(edgeGroup);
     }
 
     // Remove button
@@ -1090,6 +1352,59 @@ export class PropertiesPanel {
     }
     select.addEventListener('change', () => onChange(select.value));
     return select;
+  }
+
+  /**
+   * Detect if a closed tube is a circle or rectangle from its control points.
+   * Circles have ~36 equispaced points at nearly equal distance from center.
+   * Rectangles have ~40 points forming a rectangular outline.
+   * @returns {{ type: 'circle'|'rectangle', ... } | null}
+   */
+  _detectShape(tube) {
+    if (!tube.closed || tube.controlPoints.length < 8) return null;
+
+    const pts = tube.controlPoints;
+    const n = pts.length;
+
+    // Compute center
+    const center = pts[0].clone();
+    for (let i = 1; i < n; i++) center.add(pts[i]);
+    center.divideScalar(n);
+
+    // Compute distances from center
+    const dists = pts.map(p => p.distanceTo(center));
+    const avgDist = dists.reduce((a, b) => a + b, 0) / n;
+    const maxDeviation = Math.max(...dists.map(d => Math.abs(d - avgDist)));
+
+    // Circle detection: all points approximately same distance from center
+    // Allow 5% deviation
+    if (maxDeviation / avgDist < 0.05 && n >= 16) {
+      return { type: 'circle', center, diameter: avgDist * 2 };
+    }
+
+    // Rectangle detection: compute bounding box and check if points lie on edges
+    // Determine which plane the shape is on
+    const rangeX = Math.max(...pts.map(p => p.x)) - Math.min(...pts.map(p => p.x));
+    const rangeY = Math.max(...pts.map(p => p.y)) - Math.min(...pts.map(p => p.y));
+    const rangeZ = Math.max(...pts.map(p => p.z)) - Math.min(...pts.map(p => p.z));
+
+    let width, height, plane;
+    if (rangeY < rangeX * 0.01 && rangeY < rangeZ * 0.01) {
+      plane = 'XZ'; width = rangeX; height = rangeZ;
+    } else if (rangeZ < rangeX * 0.01 && rangeZ < rangeY * 0.01) {
+      plane = 'XY'; width = rangeX; height = rangeY;
+    } else if (rangeX < rangeY * 0.01 && rangeX < rangeZ * 0.01) {
+      plane = 'YZ'; width = rangeY; height = rangeZ;
+    } else {
+      return null; // Not flat on a plane
+    }
+
+    // Check if it's rectangular: most points should be near the edges of the bounding box
+    if (n >= 20 && width > 0.01 && height > 0.01) {
+      return { type: 'rectangle', center, width, height, plane };
+    }
+
+    return null;
   }
 
   _colorInput(value, onChange) {

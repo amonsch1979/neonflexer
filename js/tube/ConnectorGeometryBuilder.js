@@ -1,8 +1,9 @@
 import * as THREE from 'three';
+import { AngleConnectorGeometryBuilder } from './AngleConnectorGeometryBuilder.js';
 
 /**
  * Builds procedural 3D meshes for connectors.
- * Creates slightly tapered cylinders oriented along the tangent direction.
+ * Delegates to AngleConnectorGeometryBuilder for angle/sphere types.
  */
 export class ConnectorGeometryBuilder {
   /**
@@ -11,18 +12,33 @@ export class ConnectorGeometryBuilder {
    * @returns {THREE.Mesh}
    */
   static build(connector) {
+    // Delegate angle and sphere types
+    if (connector.type === 'angle') {
+      return AngleConnectorGeometryBuilder.buildAngle(connector);
+    }
+    if (connector.type === 'sphere') {
+      return AngleConnectorGeometryBuilder.buildSphere(connector);
+    }
+
+    // Default: inline cylinder connector
     const radiusBottom = (connector.diameterMm / 2) * 0.001; // mm to meters
     const radiusTop = radiusBottom * 0.9; // slight taper
     const height = connector.heightMm * 0.001;
 
     const geometry = new THREE.CylinderGeometry(radiusTop, radiusBottom, height, 24, 1);
 
+    // Use connector color if set, fall back to red
+    const colorHex = connector.color && connector.color !== '#555555'
+      ? new THREE.Color(connector.color)
+      : new THREE.Color(0xff2222);
+    const emissiveHex = colorHex.clone().multiplyScalar(0.5);
+
     const material = new THREE.MeshPhysicalMaterial({
-      color: 0xff2222,
+      color: colorHex,
       metalness: 0.2,
       roughness: 0.5,
       clearcoat: 0.3,
-      emissive: 0x661111,
+      emissive: emissiveHex,
       emissiveIntensity: 0.3,
     });
 

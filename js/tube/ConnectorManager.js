@@ -75,6 +75,41 @@ export class ConnectorManager {
   }
 
   /**
+   * Visually offset connector meshes for live drag preview (no data change).
+   * @param {number[]} tubeIds
+   * @param {THREE.Vector3} delta - offset from original position
+   */
+  setVisualOffsetForTubes(tubeIds, delta) {
+    const idSet = new Set(tubeIds);
+    for (const connector of this.connectors) {
+      if (idSet.has(connector.tubeBeforeId) || idSet.has(connector.tubeAfterId)) {
+        if (connector.mesh) {
+          connector.mesh.position.set(
+            connector.position.x + delta.x,
+            connector.position.y + delta.y,
+            connector.position.z + delta.z
+          );
+        }
+      }
+    }
+  }
+
+  /**
+   * Reset visual offset on connector meshes (restore to data position).
+   * @param {number[]} tubeIds
+   */
+  resetVisualOffset(tubeIds) {
+    const idSet = new Set(tubeIds);
+    for (const connector of this.connectors) {
+      if (idSet.has(connector.tubeBeforeId) || idSet.has(connector.tubeAfterId)) {
+        if (connector.mesh) {
+          connector.mesh.position.copy(connector.position);
+        }
+      }
+    }
+  }
+
+  /**
    * Remove all connectors.
    */
   clearAll() {

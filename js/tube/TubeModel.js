@@ -41,11 +41,16 @@ export class TubeModel {
     // Fixture preset
     this.fixturePreset = options.fixturePreset || 'custom';
 
+    // Placeholder mode (generic fixture, no pixels)
+    this.isPlaceholder = options.isPlaceholder || false;
+    this.facingDirection = options.facingDirection || 'up'; // 'up' | 'down' | 'inward' | 'outward'
+    this.placeholderName = options.placeholderName || ''; // fixture name shown in Capture (e.g. "LX100")
+
     // Group
     this.groupId = options.groupId || null;
 
     // Curve
-    this.tension = options.tension || 0.5;
+    this.tension = options.tension != null ? options.tension : 0.5;
     this.closed = options.closed || false;
 
     // Visual state
@@ -104,6 +109,16 @@ export class TubeModel {
     }
   }
 
+  /** Insert a control point at index */
+  insertPoint(index, point) {
+    this.controlPoints.splice(index, 0, point.clone());
+  }
+
+  /** Reverse control point order (flip direction) */
+  reversePoints() {
+    this.controlPoints.reverse();
+  }
+
   /** Check if tube has enough points for a curve */
   get isValid() {
     return this.controlPoints.length >= 2;
@@ -130,6 +145,9 @@ export class TubeModel {
       dmxAddress: this.dmxAddress,
       dmxChannelsPerPixel: this.dmxChannelsPerPixel,
       fixturePreset: this.fixturePreset,
+      isPlaceholder: this.isPlaceholder,
+      facingDirection: this.facingDirection,
+      placeholderName: this.placeholderName,
       // groupId deliberately omitted — clone is independent
       tension: this.tension,
       closed: this.closed,
@@ -159,6 +177,9 @@ export class TubeModel {
       dmxChannelsPerPixel: this.dmxChannelsPerPixel,
       dmxAddress: this.dmxAddress,
       fixturePreset: this.fixturePreset,
+      isPlaceholder: this.isPlaceholder,
+      facingDirection: this.facingDirection,
+      placeholderName: this.placeholderName,
       groupId: this.groupId,
       visible: this.visible,
       color: this.color,
@@ -187,6 +208,9 @@ export class TubeModel {
       dmxChannelsPerPixel: data.dmxChannelsPerPixel,
       dmxAddress: data.dmxAddress,
       fixturePreset: data.fixturePreset || 'custom',
+      isPlaceholder: data.isPlaceholder || false,
+      facingDirection: data.facingDirection || 'up',
+      placeholderName: data.placeholderName || '',
       groupId: data.groupId || null,
       color: data.color,
     });

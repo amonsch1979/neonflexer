@@ -52,21 +52,41 @@ export class MVRExporter {
     const glbData = await this._exportBodiesGLB(tubes, connectors);
 
     // 2. Check if any tube needs discrete pixel fixtures
-    const hasDiscretePixels = tubes.some(t => t.pixelMode !== 'uv-mapped');
+    const hasDiscretePixels = tubes.some(t => !t.isPlaceholder && t.pixelMode !== 'uv-mapped');
 
-    // 3. Build the generic LED GDTF fixture (only if needed)
+    // 3. Build GDTF fixtures (only if needed)
     const gdtfData = hasDiscretePixels ? this._buildGenericLEDGdtf() : null;
+
+    // Build one placeholder GDTF per unique fixture name
+    // Map: placeholderName → gdtf filename
+    const placeholderGdtfs = new Map();
+    for (const tube of tubes) {
+      if (!tube.isPlaceholder) continue;
+      const name = tube.placeholderName || 'Generic Placeholder';
+      if (!placeholderGdtfs.has(name)) {
+        // Sanitize filename: replace non-alphanumeric with underscore
+        const safeName = name.replace(/[^a-zA-Z0-9_\- ]/g, '_');
+        const gdtfFilename = `${safeName}.gdtf`;
+        placeholderGdtfs.set(name, {
+          filename: gdtfFilename,
+          data: this._buildPlaceholderGdtf(name),
+        });
+      }
+    }
 
     // 4. Collect all pixel positions per tube
     const tubePixels = this._collectPixelData(tubes);
 
     // 5. Build GeneralSceneDescription.xml
-    const xml = this._buildMVRXml(tubes, tubePixels);
+    const xml = this._buildMVRXml(tubes, tubePixels, placeholderGdtfs);
 
     // 6. Package into MVR (ZIP)
     const mvr = new ZipBuilder();
     mvr.addFile('GeneralSceneDescription.xml', xml);
     if (gdtfData) mvr.addFile('GenericLED.gdtf', gdtfData);
+    for (const { filename, data } of placeholderGdtfs.values()) {
+      mvr.addFile(filename, data);
+    }
     mvr.addFile('models/TubeModel.glb', new Uint8Array(glbData));
 
     const mvrData = mvr.build();
@@ -90,6 +110,9 @@ export class MVRExporter {
       } else {
         const bodyMat = tube.bodyMesh.material.clone();
         bodyMat.name = `${tube.name}_Body_${tube.materialPreset}`;
+        // Frosted material — high roughness so Capture shows frost 100%
+        bodyMat.roughness = 1.0;
+        bodyMat.metalness = 0.0;
         const bodyClone = new THREE.Mesh(
           tube.bodyMesh.geometry.clone(),
           bodyMat
@@ -99,13 +122,19 @@ export class MVRExporter {
       }
     }
 
-    // Add connector meshes as static geometry
+    // Add connector meshes as static geometry — shared material for all connectors
+    let sharedConnMat = null;
     for (const conn of connectors) {
       if (!conn.mesh) continue;
+      if (!sharedConnMat) {
+        sharedConnMat = conn.mesh.material.clone();
+        sharedConnMat.name = 'Connector_Body';
+        // Frosted material — high roughness so Capture shows frost 100%
+        sharedConnMat.roughness = 1.0;
+        sharedConnMat.metalness = 0.0;
+      }
       const connGeo = conn.mesh.geometry.clone();
-      const connMat = conn.mesh.material.clone();
-      connMat.name = `Connector_${conn.id}_Body`;
-      const connClone = new THREE.Mesh(connGeo, connMat);
+      const connClone = new THREE.Mesh(connGeo, sharedConnMat);
       connClone.name = `Connector_${conn.id}`;
       connClone.position.copy(conn.mesh.position);
       connClone.quaternion.copy(conn.mesh.quaternion);
@@ -166,6 +195,9 @@ export class MVRExporter {
       const partGeo = TubeGeometryBuilder.build(subCurve, tube);
 
       const mat = tube.bodyMesh.material.clone();
+      // Frosted material — high roughness so Capture shows frost 100%
+      mat.roughness = 1.0;
+      mat.metalness = 0.0;
       const partLabel = numParts > 1
         ? `_PT${p + 1}_${partPx}px`
         : `_${activePx}px`;
@@ -182,7 +214,7 @@ export class MVRExporter {
   static _collectPixelData(tubes) {
     const result = [];
     for (const tube of tubes) {
-      if (tube.pixelMode === 'uv-mapped') { result.push([]); continue; }
+      if (tube.isPlaceholder || tube.pixelMode === 'uv-mapped') { result.push([]); continue; }
       const curve = CurveBuilder.build(tube.controlPoints, tube.tension, tube.closed);
       if (!curve) { result.push([]); continue; }
       const { points } = CurveBuilder.getPixelPoints(curve, tube.pixelsPerMeter);
@@ -288,9 +320,164 @@ export class MVRExporter {
     return gdtf.build();
   }
 
+  // ─── Placeholder GDTF ──────────────────────────────────────
+
+  static _buildPlaceholderGdtf(name = 'Generic Placeholder') {
+    const fixtureTypeId = this._uuid();
+    const esc = (s) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    const descriptionXml = `<?xml version="1.0" encoding="UTF-8"?>
+<GDTF DataVersion="1.2">
+  <!--Capture Placeholder-->
+  <FixtureType Name="${esc(name)}" ShortName="${esc(name.substring(0, 20))}" LongName="${esc(name)}"
+               Manufacturer="MAGICTOOLBOX" Description="Placeholder for ${esc(name)} — swap with real fixture in Capture"
+               FixtureTypeID="${fixtureTypeId}" RefFT="">
+    <AttributeDefinitions>
+      <ActivationGroups>
+        <ActivationGroup Name="DimmerGroup"/>
+      </ActivationGroups>
+      <FeatureGroups>
+        <FeatureGroup Name="Dimmer" Pretty="Dimmer">
+          <Feature Name="Dimmer.Dimmer"/>
+        </FeatureGroup>
+      </FeatureGroups>
+      <Attributes>
+        <Attribute Name="Dimmer" Pretty="Dim" ActivationGroup="DimmerGroup" Feature="Dimmer.Dimmer" PhysicalUnit="LuminousIntensity"/>
+        <Attribute Name="ColorAdd_R" Pretty="R" ActivationGroup="DimmerGroup" Feature="Dimmer.Dimmer" PhysicalUnit="ColorComponent"/>
+        <Attribute Name="ColorAdd_G" Pretty="G" ActivationGroup="DimmerGroup" Feature="Dimmer.Dimmer" PhysicalUnit="ColorComponent"/>
+        <Attribute Name="ColorAdd_B" Pretty="B" ActivationGroup="DimmerGroup" Feature="Dimmer.Dimmer" PhysicalUnit="ColorComponent"/>
+        <Attribute Name="ColorAdd_W" Pretty="W" ActivationGroup="DimmerGroup" Feature="Dimmer.Dimmer" PhysicalUnit="ColorComponent"/>
+      </Attributes>
+    </AttributeDefinitions>
+    <Wheels/>
+    <PhysicalDescriptions/>
+    <Models/>
+    <Geometries>
+      <Geometry Name="Body" Model="" Position="{1,0,0}{0,1,0}{0,0,1}{0,0,0}"/>
+    </Geometries>
+    <DMXModes>
+      <DMXMode Name="RGBW" Geometry="Body">
+        <DMXChannels>
+          <DMXChannel DMXBreak="1" Offset="1" Default="0/1" Highlight="255/1" Geometry="Body">
+            <LogicalChannel Attribute="ColorAdd_R">
+              <ChannelFunction Attribute="ColorAdd_R" DMXFrom="0/1" PhysicalFrom="0" PhysicalTo="1"/>
+            </LogicalChannel>
+          </DMXChannel>
+          <DMXChannel DMXBreak="1" Offset="2" Default="0/1" Highlight="255/1" Geometry="Body">
+            <LogicalChannel Attribute="ColorAdd_G">
+              <ChannelFunction Attribute="ColorAdd_G" DMXFrom="0/1" PhysicalFrom="0" PhysicalTo="1"/>
+            </LogicalChannel>
+          </DMXChannel>
+          <DMXChannel DMXBreak="1" Offset="3" Default="0/1" Highlight="255/1" Geometry="Body">
+            <LogicalChannel Attribute="ColorAdd_B">
+              <ChannelFunction Attribute="ColorAdd_B" DMXFrom="0/1" PhysicalFrom="0" PhysicalTo="1"/>
+            </LogicalChannel>
+          </DMXChannel>
+          <DMXChannel DMXBreak="1" Offset="4" Default="0/1" Highlight="255/1" Geometry="Body">
+            <LogicalChannel Attribute="ColorAdd_W">
+              <ChannelFunction Attribute="ColorAdd_W" DMXFrom="0/1" PhysicalFrom="0" PhysicalTo="1"/>
+            </LogicalChannel>
+          </DMXChannel>
+        </DMXChannels>
+      </DMXMode>
+    </DMXModes>
+  </FixtureType>
+</GDTF>`;
+
+    const gdtf = new ZipBuilder();
+    gdtf.addFile('description.xml', descriptionXml);
+    return gdtf.build();
+  }
+
+  // ─── Placeholder Matrix ──────────────────────────────────────
+
+  /**
+   * Compute MVR rotation matrix for a placeholder fixture.
+   * @param {import('../tube/TubeModel.js').TubeModel} tube
+   * @param {import('../tube/TubeModel.js').TubeModel[]} groupTubes - all tubes in the group (for inward/outward)
+   * @returns {{ matrix: string, position: {x:number,y:number,z:number} }}
+   */
+  static _computePlaceholderMatrix(tube, groupTubes) {
+    const curve = CurveBuilder.build(tube.controlPoints, tube.tension, tube.closed);
+    if (!curve) return null;
+
+    // Midpoint and tangent at t=0.5
+    const midpoint = curve.getPointAt(0.5);
+    const tangent = curve.getTangentAt(0.5).normalize();
+
+    // Compute beam direction from facing
+    let beam;
+    const facing = tube.facingDirection || 'up';
+
+    if (facing === 'up') {
+      beam = new THREE.Vector3(0, 1, 0);
+    } else if (facing === 'down') {
+      beam = new THREE.Vector3(0, -1, 0);
+    } else {
+      // inward/outward: compute centroid of group
+      const centroid = new THREE.Vector3();
+      let count = 0;
+      for (const t of groupTubes) {
+        for (const pt of t.controlPoints) {
+          centroid.add(pt);
+          count++;
+        }
+      }
+      if (count > 0) centroid.divideScalar(count);
+
+      const toCenter = centroid.clone().sub(midpoint).normalize();
+      // Remove component along tangent (project to perpendicular plane)
+      toCenter.sub(tangent.clone().multiplyScalar(toCenter.dot(tangent)));
+      if (toCenter.lengthSq() < 0.0001) {
+        // Fallback if tube points at centroid
+        beam = new THREE.Vector3(0, 1, 0);
+      } else {
+        toCenter.normalize();
+        beam = facing === 'inward' ? toCenter : toCenter.negate();
+      }
+    }
+
+    // Negate: in GDTF the fixture beam points along -Z of local space,
+    // so row3 (fixture +Z) must point opposite to the desired facing direction
+    beam.negate();
+
+    // Make beam perpendicular to tangent
+    beam.sub(tangent.clone().multiplyScalar(beam.dot(tangent)));
+    if (beam.lengthSq() < 0.0001) {
+      // Tangent is parallel to beam direction — pick arbitrary perpendicular
+      beam = new THREE.Vector3(0, 0, 1);
+      beam.sub(tangent.clone().multiplyScalar(beam.dot(tangent))).normalize();
+    } else {
+      beam.normalize();
+    }
+
+    // Build orthonormal basis in Three.js space (Y-up, right-handed):
+    //   tangent = fixture local X (strip length direction)
+    //   beam    = fixture local Z (facing/beam direction)
+    //   cross   = fixture local Y (perpendicular, right-hand rule: Y = Z × X)
+    const cross = new THREE.Vector3().crossVectors(beam, tangent).normalize();
+
+    // Convert to MVR coordinate system: Three.js Y-up → MVR Z-up
+    // MVR: x=x, y=-z, z=y (for both rotation and translation)
+    // Matrix format: {row1}{row2}{row3}{translation}
+    //   row1 = fixture local X in world (strip direction)
+    //   row2 = fixture local Y in world (perpendicular)
+    //   row3 = fixture local Z in world (facing/beam direction)
+    const toMVR = (v) => ({ x: v.x, y: -v.z, z: v.y });
+
+    const row1 = toMVR(tangent); // fixture X = strip direction
+    const row2 = toMVR(cross);   // fixture Y = perpendicular
+    const row3 = toMVR(beam);    // fixture Z = facing direction
+    const tx = toMVR(midpoint);
+
+    const f = (n) => n.toFixed(6);
+    const matrix = `{${f(row1.x)},${f(row1.y)},${f(row1.z)}}{${f(row2.x)},${f(row2.y)},${f(row2.z)}}{${f(row3.x)},${f(row3.y)},${f(row3.z)}}{${f(tx.x * 1000)},${f(tx.y * 1000)},${f(tx.z * 1000)}}`;
+
+    return { matrix, position: { x: tx.x * 1000, y: tx.y * 1000, z: tx.z * 1000 } };
+  }
+
   // ─── MVR XML ────────────────────────────────────────────────
 
-  static _buildMVRXml(tubes, tubePixels) {
+  static _buildMVRXml(tubes, tubePixels, placeholderGdtfs = new Map()) {
     // One layer per tube, with a GroupObject containing model + pixels together
     let allLayers = '';
 
@@ -314,24 +501,51 @@ export class MVRExporter {
       // In MVR, break=0 (fixture DMX input), address = absolute across universes
       let absoluteAddr = (startUniverse - 1) * 512 + startAddress;
 
-      // Build pixel fixtures (skip for uv-mapped tubes)
-      const pixelNameOffset = tube.startPixel || 0;
       let pixelFixtures = '';
-      for (let pi = 0; pi < (tube.pixelMode === 'uv-mapped' ? 0 : pixels.length); pi++) {
-        const pos = pixels[pi];
-        const uuid = this._uuid();
-        // Convert Three.js (Y-up) to MVR (Z-up) in millimeters
-        const x = (pos.x * 1000).toFixed(1);
-        const y = (-pos.z * 1000).toFixed(1);
-        const z = (pos.y * 1000).toFixed(1);
 
-        // If this fixture won't fit in current universe, jump to next
-        const addrInUni = ((absoluteAddr - 1) % 512) + 1;
-        if (addrInUni + chPerPixel - 1 > 512) {
-          absoluteAddr = (Math.floor((absoluteAddr - 1) / 512) + 1) * 512 + 1;
+      if (tube.isPlaceholder) {
+        // Placeholder: 1 fixture per tube with rotation matrix
+        const groupTubes = tube.groupId
+          ? tubes.filter(t => t.groupId === tube.groupId)
+          : [tube];
+        const result = this._computePlaceholderMatrix(tube, groupTubes);
+        if (result) {
+          const uuid = this._uuid();
+          const phDisplayName = tube.placeholderName || tube.name;
+          const phKey = tube.placeholderName || 'Generic Placeholder';
+          const gdtfFile = placeholderGdtfs.has(phKey)
+            ? placeholderGdtfs.get(phKey).filename
+            : 'Generic Placeholder.gdtf';
+          pixelFixtures = `
+            <Fixture name="${this._esc(phDisplayName)}" uuid="${uuid}">
+              <Matrix>${result.matrix}</Matrix>
+              <GDTFSpec>${this._esc(gdtfFile)}</GDTFSpec>
+              <GDTFMode>RGBW</GDTFMode>
+              <Addresses>
+                <Address break="0">${absoluteAddr}</Address>
+              </Addresses>
+              <FixtureID>${fixtureId}</FixtureID>
+              <CustomId>${ti + 1}</CustomId>
+            </Fixture>`;
         }
+      } else {
+        // Build pixel fixtures (skip for uv-mapped tubes)
+        const pixelNameOffset = tube.startPixel || 0;
+        for (let pi = 0; pi < (tube.pixelMode === 'uv-mapped' ? 0 : pixels.length); pi++) {
+          const pos = pixels[pi];
+          const uuid = this._uuid();
+          // Convert Three.js (Y-up) to MVR (Z-up) in millimeters
+          const x = (pos.x * 1000).toFixed(1);
+          const y = (-pos.z * 1000).toFixed(1);
+          const z = (pos.y * 1000).toFixed(1);
 
-        pixelFixtures += `
+          // If this fixture won't fit in current universe, jump to next
+          const addrInUni = ((absoluteAddr - 1) % 512) + 1;
+          if (addrInUni + chPerPixel - 1 > 512) {
+            absoluteAddr = (Math.floor((absoluteAddr - 1) / 512) + 1) * 512 + 1;
+          }
+
+          pixelFixtures += `
             <Fixture name="${tubeName}_Pixel_${pi + pixelNameOffset}" uuid="${uuid}">
               <Matrix>{1,0,0}{0,1,0}{0,0,1}{${x},${y},${z}}</Matrix>
               <GDTFSpec>GenericLED.gdtf</GDTFSpec>
@@ -343,8 +557,9 @@ export class MVRExporter {
               <CustomId>${ti + 1}</CustomId>
             </Fixture>`;
 
-        absoluteAddr += chPerPixel;
-        fixtureId++;
+          absoluteAddr += chPerPixel;
+          fixtureId++;
+        }
       }
 
       // Layer > GroupObject > (SceneObject + Fixtures)

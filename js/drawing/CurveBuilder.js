@@ -91,6 +91,46 @@ export class CurveBuilder {
   }
 
   /**
+   * Find the nearest curve parameter t for a world point.
+   * Two-pass: coarse (200 samples) then refine (40 samples around best).
+   * @param {THREE.CatmullRomCurve3} curve
+   * @param {THREE.Vector3} worldPoint
+   * @returns {number} t in [0, 1]
+   */
+  static findNearestT(curve, worldPoint) {
+    const COARSE = 200;
+    let bestT = 0;
+    let bestDist = Infinity;
+
+    for (let i = 0; i <= COARSE; i++) {
+      const t = i / COARSE;
+      const pt = curve.getPointAt(t);
+      const d = worldPoint.distanceToSquared(pt);
+      if (d < bestDist) {
+        bestDist = d;
+        bestT = t;
+      }
+    }
+
+    const FINE = 40;
+    const range = 1 / COARSE;
+    const tMin = Math.max(0, bestT - range);
+    const tMax = Math.min(1, bestT + range);
+
+    for (let i = 0; i <= FINE; i++) {
+      const t = tMin + (tMax - tMin) * (i / FINE);
+      const pt = curve.getPointAt(t);
+      const d = worldPoint.distanceToSquared(pt);
+      if (d < bestDist) {
+        bestDist = d;
+        bestT = t;
+      }
+    }
+
+    return Math.max(0.005, Math.min(0.995, bestT));
+  }
+
+  /**
    * Create a preview line geometry for the curve.
    */
   static createPreviewLine(curve, color = 0x00d4ff) {

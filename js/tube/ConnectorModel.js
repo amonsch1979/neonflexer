@@ -17,12 +17,21 @@ export class ConnectorModel {
     this.fixturePreset = options.fixturePreset || 'custom';
     this.color = options.color || '#555555';
 
+    // Connector type: 'inline' (default cylinder), 'angle' (torus-section), 'sphere'
+    this.type = options.type || 'inline';
+    // Angle in radians (for angle connectors — the bend angle between two tubes)
+    this.angle = options.angle || 0;
+    // Normal vector (plane of the angle connector)
+    this.normal = options.normal ? options.normal.clone() : null;
+    // Bisector vector (angle bisector for orientation)
+    this.bisector = options.bisector ? options.bisector.clone() : null;
+
     // Three.js mesh reference (set by ConnectorManager)
     this.mesh = null;
   }
 
   toJSON() {
-    return {
+    const obj = {
       id: this.id,
       position: { x: this.position.x, y: this.position.y, z: this.position.z },
       tangent: { x: this.tangent.x, y: this.tangent.y, z: this.tangent.z },
@@ -33,6 +42,11 @@ export class ConnectorModel {
       fixturePreset: this.fixturePreset,
       color: this.color,
     };
+    if (this.type !== 'inline') obj.type = this.type;
+    if (this.angle) obj.angle = this.angle;
+    if (this.normal) obj.normal = { x: this.normal.x, y: this.normal.y, z: this.normal.z };
+    if (this.bisector) obj.bisector = { x: this.bisector.x, y: this.bisector.y, z: this.bisector.z };
+    return obj;
   }
 
   static fromJSON(data) {
@@ -45,6 +59,10 @@ export class ConnectorModel {
       tubeAfterId: data.tubeAfterId,
       fixturePreset: data.fixturePreset,
       color: data.color,
+      type: data.type || 'inline',
+      angle: data.angle || 0,
+      normal: data.normal ? new THREE.Vector3(data.normal.x, data.normal.y, data.normal.z) : null,
+      bisector: data.bisector ? new THREE.Vector3(data.bisector.x, data.bisector.y, data.bisector.z) : null,
     });
     if (data.id != null) conn.id = data.id;
     return conn;

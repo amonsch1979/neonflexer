@@ -135,8 +135,8 @@ export class DrawingManager {
 
     const tubeOptions = { ...presetOptions, ...extraOptions };
 
-    // Check if auto-segmenting is needed
-    if (preset && preset.maxLengthM) {
+    // Check if auto-segmenting is needed (skip for placeholders)
+    if (preset && preset.maxLengthM && !tubeOptions.isPlaceholder) {
       const connectorHeightM = preset.connectorHeightMm
         ? preset.connectorHeightMm * 0.001
         : 0.03;

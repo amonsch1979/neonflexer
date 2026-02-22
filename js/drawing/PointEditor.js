@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { TransformControls } from 'three/addons/controls/TransformControls.js';
+import { CurveBuilder } from './CurveBuilder.js';
 
 /**
  * Select and move individual control points or entire tubes.
@@ -30,10 +31,14 @@ export class PointEditor {
 
     this.onPointMoved = null;    // (tubeModel) => {}
     this.onPointDeleted = null;  // (tubeModel) => {}
+    this.onPointInserted = null; // (tubeModel) => {}
     this.onTubeMoved = null;     // (tubeModel) => {}
+    this.onTubeExtended = null;  // (tubeModel) => {}
+    this.onGroupMoveLive = null; // (tubeIds, delta) => {} — live preview for connectors
     this.onBeforeMutate = null;  // () => {} — for undo capture before drag/delete
 
     this._onPointerDown = this._onMouseDown.bind(this);
+    this._onDblClick = this._onDblClick.bind(this);
     this._onKeyDown = this._onKeyDown.bind(this);
 
     // Create transform controls
@@ -87,6 +92,7 @@ export class PointEditor {
     this.tubeManager = tubeManager;
     const canvas = this.sceneManager.canvas;
     canvas.addEventListener('pointerdown', this._onPointerDown);
+    canvas.addEventListener('dblclick', this._onDblClick);
     document.addEventListener('keydown', this._onKeyDown);
   }
 
@@ -95,6 +101,7 @@ export class PointEditor {
     this._deselectAll();
     const canvas = this.sceneManager.canvas;
     canvas.removeEventListener('pointerdown', this._onPointerDown);
+    canvas.removeEventListener('dblclick', this._onDblClick);
     document.removeEventListener('keydown', this._onKeyDown);
   }
 
@@ -245,6 +252,11 @@ export class PointEditor {
     for (const member of members) {
       if (member.group) member.group.position.copy(delta);
     }
+    // Move connectors visually during drag
+    if (this.onGroupMoveLive) {
+      const tubeIds = members.map(m => m.id);
+      this.onGroupMoveLive(tubeIds, delta);
+    }
   }
 
   /** On drag end: apply the delta to all control points and rebuild */
@@ -281,6 +293,36 @@ export class PointEditor {
       }
       this._movingTube = null;
       this._tubeMoveStart = null;
+    }
+  }
+
+  // ── Double-click to insert point on tube body ────────
+
+  _onDblClick(e) {
+    if (!this.active || !this.tubeManager) return;
+    if (e.button !== 0) return;
+
+    const bodies = this.tubeManager.getBodyMeshes();
+    if (bodies.length === 0) return;
+
+    const hits = this.sceneManager.raycastObjects(e.clientX, e.clientY, bodies);
+    if (hits.length === 0) return;
+
+    const tube = this.tubeManager.getTubeByMesh(hits[0].object);
+    if (!tube || !tube.isValid) return;
+
+    const curve = CurveBuilder.build(tube.controlPoints, tube.tension, tube.closed);
+    if (!curve) return;
+
+    const t = CurveBuilder.findNearestT(curve, hits[0].point);
+
+    if (this.onBeforeMutate) this.onBeforeMutate();
+    const newIndex = this.tubeManager.insertPointOnCurve(tube, t);
+    if (newIndex >= 0) {
+      // Select the newly inserted point
+      const helper = tube.controlPointHelpers[newIndex];
+      if (helper) this._selectPoint(helper);
+      if (this.onPointInserted) this.onPointInserted(tube);
     }
   }
 
@@ -323,6 +365,29 @@ export class PointEditor {
     if (e.key === 'h' || e.key === 'H') {
       if (this.transformControls.visible) {
         this.transformControls.showY = !this.transformControls.showY;
+      }
+    }
+
+    // Extend tube with E key (only at first or last control point)
+    if ((e.key === 'e' || e.key === 'E') && this.selectedHelper) {
+      const tubeId = this.selectedHelper.userData.tubeId;
+      const pointIndex = this.selectedHelper.userData.pointIndex;
+      const tube = this.tubeManager.getTubeById(tubeId);
+      if (!tube || tube.closed) return;
+
+      const isFirst = pointIndex === 0;
+      const isLast = pointIndex === tube.controlPoints.length - 1;
+      if (!isFirst && !isLast) return;
+
+      e.preventDefault();
+      if (this.onBeforeMutate) this.onBeforeMutate();
+
+      const end = isFirst ? 'start' : 'end';
+      const newIndex = this.tubeManager.extendTube(tube, end, 0.1);
+      if (newIndex >= 0) {
+        const helper = tube.controlPointHelpers[newIndex];
+        if (helper) this._selectPoint(helper);
+        if (this.onTubeExtended) this.onTubeExtended(tube);
       }
     }
   }

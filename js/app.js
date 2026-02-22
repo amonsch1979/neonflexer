@@ -70,6 +70,10 @@ class App {
         this.uiManager.setTool('circle');
         return;
       }
+      if (e.key === '6') {
+        this.uiManager._onShapeWizard();
+        return;
+      }
 
       // Cut tool: C
       if (e.key === 'c' || e.key === 'C') {
@@ -194,6 +198,18 @@ class App {
       if ((e.ctrlKey || e.metaKey) && (e.key === 'e' || e.key === 'E')) {
         e.preventDefault();
         this.uiManager._onExport();
+        return;
+      }
+
+      // Map Edges: M key (without Ctrl) — when ref model selected
+      if ((e.key === 'm' || e.key === 'M') && !e.ctrlKey && !e.metaKey) {
+        this.uiManager._onMapEdges(30);
+        return;
+      }
+
+      // Text to Tubes: T key (without Ctrl)
+      if ((e.key === 't' || e.key === 'T') && !e.ctrlKey && !e.metaKey) {
+        this.uiManager._onTextToTubes();
         return;
       }
 

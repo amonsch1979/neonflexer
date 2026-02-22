@@ -12,6 +12,14 @@ import { CommandPanel } from './CommandPanel.js';
 import { LoadingOverlay } from './LoadingOverlay.js';
 import { CustomFixtureDialog } from './CustomFixtureDialog.js';
 import { UndoManager } from './UndoManager.js';
+import { mapEdges } from '../edge/EdgeMapper.js';
+import { EdgePicker } from '../edge/EdgePicker.js';
+import { textToChains, loadBundledFont, parseCustomFont } from '../text/TextMapper.js';
+import { TextToTubeDialog } from './TextToTubeDialog.js';
+import { ShapeWizardDialog } from './ShapeWizardDialog.js';
+import { ShapeGeometryGenerator } from '../shapes/ShapeGeometryGenerator.js';
+import { autoSegment } from '../tube/AutoSegmenter.js';
+import { CurveBuilder } from '../drawing/CurveBuilder.js';
 import * as THREE from 'three';
 
 /**
@@ -42,6 +50,8 @@ export class UIManager {
     this.toolbar.onFocus = () => this.focusSelected();
     this.toolbar.onCommandPanel = () => this.toggleCommandPanel();
     this.toolbar.onIsolate = () => this.toggleIsolation();
+    this.toolbar.onTextToTubes = () => this._onTextToTubes();
+    this.toolbar.onShapeWizard = () => this._onShapeWizard();
 
     // Isolation mode state
     this.isolationMode = false;
@@ -197,6 +207,19 @@ export class UIManager {
       pointEditor.onDeselect = () => {
         this.refModelManager.deselectAll();
       };
+      pointEditor.onPointInserted = (tube) => {
+        this._refreshAll();
+        const statusEl = document.getElementById('status-text');
+        if (statusEl) statusEl.textContent = `Point inserted on "${tube.name}" — ${tube.controlPoints.length} points`;
+      };
+      pointEditor.onTubeExtended = (tube) => {
+        this._refreshAll();
+        const statusEl = document.getElementById('status-text');
+        if (statusEl) statusEl.textContent = `Extended "${tube.name}" — ${tube.controlPoints.length} points`;
+      };
+      pointEditor.onGroupMoveLive = (tubeIds, delta) => {
+        this.connectorManager.setVisualOffsetForTubes(tubeIds, delta);
+      };
     }
 
     // Marquee selection
@@ -230,6 +253,10 @@ export class UIManager {
     this.propertiesPanel.onSnapToRef = (tube) => this._onSnapToRef(tube);
     this.propertiesPanel.onPickStartPixel = (tube) => this._onPickStartPixel(tube);
     this.propertiesPanel.onTraceRef = (shapeType) => this._onTraceRef(shapeType);
+    this.propertiesPanel.onMapEdges = (angle) => this._onMapEdges(angle);
+    this.propertiesPanel.onResize = (tube, targetLengthMm) => this._onResizeTube(tube, targetLengthMm);
+    this.propertiesPanel.onReverse = (tube) => this._onReverseTube(tube);
+    this.propertiesPanel.onShapeDimensionChange = (tube, shapeType, dims) => this._onShapeDimensionChange(tube, shapeType, dims);
 
     // Start Pixel Picker
     this.startPixelPicker = new StartPixelPicker(app.sceneManager);
@@ -271,6 +298,9 @@ export class UIManager {
       if (statusEl) statusEl.textContent = 'Cut tool cancelled';
     };
 
+    // Edge Picker
+    this.edgePicker = new EdgePicker(app.sceneManager);
+
     // Hidden file input for project loading
     this._fileInput = document.createElement('input');
     this._fileInput.type = 'file';
@@ -302,6 +332,14 @@ export class UIManager {
     this.customFixtureDialog.onConfirm = (preset) => this._onCustomFixtureConfirm(preset);
     this.customFixtureDialog.onCancel = () => this._onCustomFixtureCancel();
     this._previousPresetId = 'custom'; // track for cancel-revert
+
+    // Text to Tubes dialog
+    this.textToTubeDialog = new TextToTubeDialog();
+    this.textToTubeDialog.onConfirm = (values) => this._onTextToTubesConfirm(values);
+
+    // Shape Wizard dialog
+    this.shapeWizardDialog = new ShapeWizardDialog();
+    this.shapeWizardDialog.onConfirm = (config) => this._onShapeWizardConfirm(config);
 
     // Floating command panel (StreamDeck-style)
     this.commandPanel = new CommandPanel();
@@ -401,10 +439,15 @@ export class UIManager {
       if (statusEl) statusEl.textContent = 'Nothing to export — create some tubes first.';
       return;
     }
+    // Ask for filename
+    const defaultName = this._lastExportName || 'NeonFlexDesign';
+    const filename = prompt('Export filename:', defaultName);
+    if (!filename) return; // cancelled
+    this._lastExportName = filename;
     try {
       if (statusEl) statusEl.textContent = 'Exporting MVR...';
-      await MVRExporter.export(this.app.tubeManager, this.connectorManager);
-      if (statusEl) statusEl.textContent = 'MVR exported successfully! (Model + GDTF Pixels)';
+      await MVRExporter.export(this.app.tubeManager, this.connectorManager, filename);
+      if (statusEl) statusEl.textContent = `MVR exported: ${filename}.mvr`;
     } catch (err) {
       console.error('Export error:', err);
       if (statusEl) statusEl.textContent = `Export failed: ${err.message}`;
@@ -471,19 +514,22 @@ export class UIManager {
     this.app.drawingManager.clickPlaceMode.maxLengthM = maxLengthM;
     this.app.drawingManager.freehandMode.maxLengthM = maxLengthM;
 
-    // Also update the selected tube's preset if one is selected
+    // Also update the selected tube's preset (+ all group members)
     const tube = this.app.tubeManager.selectedTube;
     if (tube) {
       this.undoManager.capture();
-      tube.fixturePreset = presetId;
-      if (preset) {
-        if (preset.profile != null) tube.profile = preset.profile;
-        if (preset.diameterMm != null) tube.diameterMm = preset.diameterMm;
-        if (preset.pixelsPerMeter != null) tube.pixelsPerMeter = preset.pixelsPerMeter;
-        if (preset.dmxChannelsPerPixel != null) tube.dmxChannelsPerPixel = preset.dmxChannelsPerPixel;
-        if (preset.materialPreset != null) tube.materialPreset = preset.materialPreset;
+      const targets = tube.groupId ? this.app.tubeManager.getGroupMembers(tube) : [tube];
+      for (const t of targets) {
+        t.fixturePreset = presetId;
+        if (preset) {
+          if (preset.profile != null) t.profile = preset.profile;
+          if (preset.diameterMm != null) t.diameterMm = preset.diameterMm;
+          if (preset.pixelsPerMeter != null) t.pixelsPerMeter = preset.pixelsPerMeter;
+          if (preset.dmxChannelsPerPixel != null) t.dmxChannelsPerPixel = preset.dmxChannelsPerPixel;
+          if (preset.materialPreset != null) t.materialPreset = preset.materialPreset;
+        }
+        this.app.tubeManager.updateTube(t);
       }
-      this.app.tubeManager.updateTube(tube);
       this.propertiesPanel.show(tube);
     }
 
@@ -540,6 +586,25 @@ export class UIManager {
       this._onPresetChange(presetId);
       return; // _onPresetChange already updates the tube
     }
+
+    // Apply group-wide property changes to all group members
+    const groupProps = new Set([
+      'diameterMm', 'widthMm', 'heightMm', 'wallThicknessMm', 'profile',
+      'materialPreset', 'pixelsPerMeter', 'dmxChannelsPerPixel', 'pixelMode',
+      'pixelColor', 'pixelEmissive', 'tension',
+      'isPlaceholder', 'facingDirection', 'placeholderName',
+    ]);
+    if (tube.groupId && groupProps.has(prop)) {
+      const members = this.app.tubeManager.getGroupMembers(tube);
+      const newValue = tube[prop];
+      for (const m of members) {
+        if (m.id !== tube.id) {
+          m[prop] = newValue;
+          this.app.tubeManager.updateTube(m);
+        }
+      }
+    }
+
     this.app.tubeManager.updateTube(tube);
     this._refreshTubeList();
   }
@@ -547,7 +612,7 @@ export class UIManager {
   _onSelectTube(id) {
     const tube = this.app.tubeManager.getTubeById(id);
     if (tube) {
-      this.app.tubeManager.selectTubeSingle(tube);
+      this.app.tubeManager.selectTube(tube);
     }
   }
 
@@ -1090,6 +1155,633 @@ export class UIManager {
   }
 
   /**
+   * Map Edges: extract sharp edges from selected ref model(s), let user pick
+   * which edges to keep via EdgePicker, then create tubes from the selection.
+   */
+  _onMapEdges(angleThreshold = 30) {
+    const statusEl = document.getElementById('status-text');
+
+    // Collect target models (same pattern as _onTraceRef)
+    let targetModels = [];
+    if (this.refModelManager.selectedModelIds.size > 1) {
+      targetModels = this.refModelManager.getSelectedModels().filter(
+        m => m.group && !m.needsReimport
+      );
+    } else if (this.refModelManager.selectedModel) {
+      const rm = this.refModelManager.selectedModel;
+      if (rm.group && !rm.needsReimport) targetModels = [rm];
+    }
+
+    if (targetModels.length === 0) {
+      if (statusEl) statusEl.textContent = 'No reference model selected for edge mapping.';
+      return;
+    }
+
+    // Count triangles to decide whether to show loading overlay
+    let totalTriangles = 0;
+    for (const m of targetModels) {
+      m.group.traverse((child) => {
+        if (child.isMesh && child.geometry) {
+          const idx = child.geometry.index;
+          totalTriangles += idx ? idx.count / 3 : (child.geometry.getAttribute('position')?.count || 0) / 3;
+        }
+      });
+    }
+
+    const showLoading = totalTriangles > 50000;
+    if (showLoading) this.loadingOverlay.show('Detecting edges...');
+
+    // Use setTimeout to allow UI to update before heavy computation
+    setTimeout(() => {
+      let allChains = [];
+
+      for (const model of targetModels) {
+        const result = mapEdges(model.group, { angleThreshold });
+        allChains.push(...result.chains);
+      }
+
+      if (showLoading) this.loadingOverlay.hide();
+
+      if (allChains.length === 0) {
+        if (statusEl) statusEl.textContent = 'No edges detected. Try a lower angle threshold.';
+        return;
+      }
+
+      // Activate edge picker for visual selection
+      this.edgePicker.onConfirm = (selectedChains) => {
+        if (selectedChains.length === 0) {
+          if (statusEl) statusEl.textContent = 'No edges selected — cancelled.';
+          return;
+        }
+        this.undoManager.capture();
+        this._createTubesFromChains(selectedChains, targetModels);
+      };
+      this.edgePicker.onCancel = () => {
+        if (statusEl) statusEl.textContent = 'Edge pick cancelled.';
+      };
+      this.edgePicker.activate(allChains);
+    }, showLoading ? 50 : 0);
+  }
+
+  /**
+   * Create tubes from a list of edge chains (shared by edge-pick confirm path).
+   */
+  _createTubesFromChains(chains, targetModels) {
+    const statusEl = document.getElementById('status-text');
+
+    // Build tube options from active preset
+    const preset = this.app.drawingManager.activePreset;
+    const presetId = this.app.drawingManager.activePresetId;
+    const presetOptions = {};
+    if (preset) {
+      if (preset.profile != null) presetOptions.profile = preset.profile;
+      if (preset.diameterMm != null) presetOptions.diameterMm = preset.diameterMm;
+      if (preset.pixelsPerMeter != null) presetOptions.pixelsPerMeter = preset.pixelsPerMeter;
+      if (preset.dmxChannelsPerPixel != null) presetOptions.dmxChannelsPerPixel = preset.dmxChannelsPerPixel;
+      if (preset.materialPreset != null) presetOptions.materialPreset = preset.materialPreset;
+      presetOptions.fixturePreset = presetId;
+    }
+
+    let createdCount = 0;
+
+    for (const chain of chains) {
+      const tubeOpts = { ...presetOptions, closed: chain.closed };
+
+      // Handle auto-segmenting if preset has maxLengthM
+      if (preset && preset.maxLengthM) {
+        const connectorHeightM = preset.connectorHeightMm
+          ? preset.connectorHeightMm * 0.001
+          : 0.03;
+        const tension = 0.5;
+
+        let segmentPoints = chain.points;
+        if (chain.closed) {
+          const closedCurve = new THREE.CatmullRomCurve3(
+            chain.points.map(p => p.clone()), true, 'catmullrom', tension
+          );
+          const perimeter = closedCurve.getLength();
+          if (perimeter <= preset.maxLengthM) {
+            this.app.tubeManager.createTube(chain.points, tubeOpts);
+            createdCount++;
+            continue;
+          }
+          segmentPoints = [...chain.points, chain.points[0].clone()];
+        }
+
+        const result = autoSegment(segmentPoints, preset.maxLengthM, connectorHeightM, tension);
+
+        if (result.segments.length > 1) {
+          const segOptions = { ...tubeOpts };
+          if (chain.closed) delete segOptions.closed;
+
+          for (let i = 0; i < result.segments.length; i++) {
+            const segName = { name: `Edge (seg ${i + 1}/${result.segments.length})` };
+            this.app.tubeManager.createTube(result.segments[i], { ...segOptions, ...segName });
+            createdCount++;
+          }
+
+          if (this.connectorManager) {
+            for (let i = 0; i < result.connectors.length; i++) {
+              const conn = result.connectors[i];
+              this.connectorManager.createConnector({
+                position: conn.position,
+                tangent: conn.tangent,
+                diameterMm: preset.connectorDiameterMm || 30,
+                heightMm: preset.connectorHeightMm || 30,
+                fixturePreset: presetId,
+              });
+            }
+          }
+          continue;
+        }
+      }
+
+      // Single tube (no segmenting needed)
+      this.app.tubeManager.createTube(chain.points, tubeOpts);
+      createdCount++;
+    }
+
+    const label = targetModels.length > 1
+      ? `${targetModels.length} models`
+      : `"${targetModels[0].name}"`;
+    if (statusEl) {
+      statusEl.textContent = `Mapped ${createdCount} edge tube(s) from ${label}`;
+    }
+
+    // Focus camera on results
+    const focusTarget = targetModels[0].group;
+    if (focusTarget) {
+      this.app.sceneManager.focusOnObject(focusTarget);
+    }
+  }
+
+  /**
+   * Text to Tubes: show dialog to enter text for tube generation.
+   */
+  _onTextToTubes() {
+    this.textToTubeDialog.show();
+  }
+
+  /**
+   * Handle text-to-tubes dialog confirmation.
+   */
+  async _onTextToTubesConfirm(values) {
+    const statusEl = document.getElementById('status-text');
+    const { text, fontId, customFontFile, size, letterSpacing, divisions } = values;
+
+    this.loadingOverlay.show('Loading font...');
+
+    try {
+      // Load font
+      let font;
+      if (fontId === 'custom' && customFontFile) {
+        const arrayBuffer = await customFontFile.arrayBuffer();
+        font = await parseCustomFont(arrayBuffer);
+      } else {
+        font = await loadBundledFont(fontId);
+      }
+
+      this.loadingOverlay.setStatus('Generating text outlines...');
+
+      // Get current drawing plane
+      const plane = this.toolbar.currentPlane || 'XZ';
+
+      // Generate chains
+      const chains = textToChains(font, text, {
+        size,
+        letterSpacing,
+        divisions,
+        plane,
+      });
+
+      if (chains.length === 0) {
+        this.loadingOverlay.hide();
+        if (statusEl) statusEl.textContent = 'No outlines generated. Try different text or font.';
+        return;
+      }
+
+      this.undoManager.capture();
+      this.loadingOverlay.setStatus(`Creating ${chains.length} tube(s)...`);
+
+      // Build tube options from active preset
+      const preset = this.app.drawingManager.activePreset;
+      const presetId = this.app.drawingManager.activePresetId;
+      const presetOptions = {};
+      if (preset) {
+        if (preset.profile != null) presetOptions.profile = preset.profile;
+        if (preset.diameterMm != null) presetOptions.diameterMm = preset.diameterMm;
+        if (preset.pixelsPerMeter != null) presetOptions.pixelsPerMeter = preset.pixelsPerMeter;
+        if (preset.dmxChannelsPerPixel != null) presetOptions.dmxChannelsPerPixel = preset.dmxChannelsPerPixel;
+        if (preset.materialPreset != null) presetOptions.materialPreset = preset.materialPreset;
+        presetOptions.fixturePreset = presetId;
+      }
+
+      let createdCount = 0;
+
+      // Center text at origin (or wherever makes sense on the plane)
+      // Compute bounding box of all chains to find offset
+      const bbox = new THREE.Box3();
+      for (const chain of chains) {
+        for (const pt of chain.points) bbox.expandByPoint(pt);
+      }
+      const center = new THREE.Vector3();
+      bbox.getCenter(center);
+
+      // Offset: shift all points so center is at origin
+      const offset = center.clone().negate();
+
+      for (const chain of chains) {
+        // Apply centering offset
+        const offsetPoints = chain.points.map(p => p.clone().add(offset));
+        const tubeOpts = { ...presetOptions, closed: true };
+
+        // Handle auto-segmenting
+        if (preset && preset.maxLengthM) {
+          const connectorHeightM = preset.connectorHeightMm
+            ? preset.connectorHeightMm * 0.001
+            : 0.03;
+          const tension = 0.5;
+
+          const closedCurve = new THREE.CatmullRomCurve3(
+            offsetPoints.map(p => p.clone()), true, 'catmullrom', tension
+          );
+          const perimeter = closedCurve.getLength();
+
+          if (perimeter <= preset.maxLengthM) {
+            this.app.tubeManager.createTube(offsetPoints, tubeOpts);
+            createdCount++;
+            continue;
+          }
+
+          const segmentPoints = [...offsetPoints, offsetPoints[0].clone()];
+          const result = autoSegment(segmentPoints, preset.maxLengthM, connectorHeightM, tension);
+
+          if (result.segments.length > 1) {
+            const segOptions = { ...tubeOpts };
+            delete segOptions.closed;
+
+            for (let i = 0; i < result.segments.length; i++) {
+              const segName = { name: `Text (seg ${i + 1}/${result.segments.length})` };
+              this.app.tubeManager.createTube(result.segments[i], { ...segOptions, ...segName });
+              createdCount++;
+            }
+
+            if (this.connectorManager) {
+              for (let i = 0; i < result.connectors.length; i++) {
+                const conn = result.connectors[i];
+                this.connectorManager.createConnector({
+                  position: conn.position,
+                  tangent: conn.tangent,
+                  diameterMm: preset.connectorDiameterMm || 30,
+                  heightMm: preset.connectorHeightMm || 30,
+                  fixturePreset: presetId,
+                });
+              }
+            }
+            continue;
+          }
+        }
+
+        // Single tube (no segmenting)
+        this.app.tubeManager.createTube(offsetPoints, tubeOpts);
+        createdCount++;
+      }
+
+      this.loadingOverlay.hide();
+
+      if (statusEl) {
+        statusEl.textContent = `Created ${createdCount} tube(s) from "${text}"`;
+      }
+
+      // Focus camera on results
+      const focusBox = new THREE.Box3();
+      for (const chain of chains) {
+        for (const pt of chain.points) focusBox.expandByPoint(pt.clone().add(offset));
+      }
+      if (!focusBox.isEmpty()) {
+        // Focus on the last created tube
+        const tubes = this.app.tubeManager.tubes;
+        if (tubes.length > 0) {
+          const lastTube = tubes[tubes.length - 1];
+          if (lastTube.group) {
+            this.app.sceneManager.focusOnObject(lastTube.group);
+          }
+        }
+      }
+    } catch (err) {
+      this.loadingOverlay.hide();
+      console.error('Text to Tubes error:', err);
+      if (statusEl) statusEl.textContent = `Error: ${err.message}`;
+    }
+  }
+
+  // ── Shape Wizard ──────────────────────────────────────
+
+  _onShapeWizard() {
+    this.shapeWizardDialog.show();
+  }
+
+  /**
+   * Handle Shape Wizard confirmation — create tubes + connectors for the shape.
+   */
+  _onShapeWizardConfirm(config) {
+    const statusEl = document.getElementById('status-text');
+    this.undoManager.capture();
+
+    const plane = this.toolbar.currentPlane || 'XZ';
+    let shape;
+
+    if (config.shape === 'box') {
+      shape = ShapeGeometryGenerator.generateBoxVertices(config.boxX, config.boxY, config.boxZ);
+    } else if (config.shape === 'triangle') {
+      shape = ShapeGeometryGenerator.generateTriangleVertices(config.sideLength, plane);
+    } else if (config.shape === 'pentagon') {
+      shape = ShapeGeometryGenerator.generatePentagonVertices(config.sideLength, plane);
+    } else if (config.shape === 'hexagon') {
+      shape = ShapeGeometryGenerator.generateHexagonVertices(config.sideLength, plane);
+    } else if (config.shape === 'star') {
+      shape = ShapeGeometryGenerator.generateStarVertices(
+        config.starPoints, config.starOuterRadius, config.starInnerRatio, plane
+      );
+    } else if (config.shape === 'grid') {
+      // Per-axis cell sizes for placeholder mode
+      const csX = config.fixtureLenX || config.gridCellSize;
+      const csY = config.fixtureLenY || config.gridCellSize;
+      const csZ = config.fixtureLenZ || config.gridCellSize;
+      shape = ShapeGeometryGenerator.generateGridVertices(
+        config.gridX, config.gridY, config.gridZ,
+        config.isPlaceholder ? csX : config.gridCellSize,
+        config.isPlaceholder ? csY : undefined,
+        config.isPlaceholder ? csZ : undefined
+      );
+    } else if (config.shape === 'cylinder') {
+      shape = ShapeGeometryGenerator.generateCylinderVertices(
+        config.cylSides, config.cylRings, config.cylRadius, config.cylHeight
+      );
+    } else if (config.shape === 'sphere') {
+      shape = ShapeGeometryGenerator.generateSphereVertices(
+        config.sphMeridians, config.sphParallels, config.sphRadius
+      );
+    } else if (config.shape === 'cone') {
+      shape = ShapeGeometryGenerator.generateConeVertices(
+        config.coneSides, config.coneRadius, config.coneHeight
+      );
+    } else if (config.shape === 'prism') {
+      shape = ShapeGeometryGenerator.generatePrismVertices(
+        config.prismSides, config.prismSideLength, config.prismHeight
+      );
+    } else if (config.shape === 'torus') {
+      shape = ShapeGeometryGenerator.generateTorusVertices(
+        config.torusMajorSeg, config.torusMinorSeg, config.torusMajorR, config.torusTubeR
+      );
+    } else {
+      return;
+    }
+
+    const { vertices, edges } = shape;
+
+    // Build tube options from active preset
+    const preset = this.app.drawingManager.activePreset;
+    const presetId = this.app.drawingManager.activePresetId;
+    const tubeOptions = { tension: 0, closed: false };
+    if (preset) {
+      if (preset.profile != null) tubeOptions.profile = preset.profile;
+      if (preset.diameterMm != null) tubeOptions.diameterMm = preset.diameterMm;
+      if (preset.pixelsPerMeter != null) tubeOptions.pixelsPerMeter = preset.pixelsPerMeter;
+      if (preset.dmxChannelsPerPixel != null) tubeOptions.dmxChannelsPerPixel = preset.dmxChannelsPerPixel;
+      if (preset.materialPreset != null) tubeOptions.materialPreset = preset.materialPreset;
+      tubeOptions.fixturePreset = presetId;
+    }
+
+    // Placeholder mode from Shape Wizard
+    if (config.isPlaceholder) {
+      tubeOptions.isPlaceholder = true;
+      tubeOptions.facingDirection = config.facingDirection || 'outward';
+      if (config.placeholderName) tubeOptions.placeholderName = config.placeholderName;
+    }
+
+    // Create one tube per edge — map edge index to tube
+    const createdTubes = [];
+    const edgeTubeMap = []; // edgeTubeMap[edgeIndex] = tube
+    for (let ei = 0; ei < edges.length; ei++) {
+      const [iA, iB] = edges[ei];
+      const points = ShapeGeometryGenerator.computeEdgePoints(vertices[iA], vertices[iB], 2);
+      const tube = this.app.tubeManager.createTube(points, {
+        ...tubeOptions,
+        name: `${config.shape} edge`,
+      });
+      createdTubes.push(tube);
+      edgeTubeMap[ei] = tube;
+    }
+
+    // Auto-group all created tubes
+    if (createdTubes.length >= 2) {
+      const tm = this.app.tubeManager;
+      tm.selectedTubeIds.clear();
+      for (const t of createdTubes) {
+        tm.selectedTubeIds.add(t.id);
+      }
+      tm.groupSelected();
+      // Re-select first tube
+      tm.selectTubeSingle(createdTubes[0]);
+    }
+
+    // Create connectors at each vertex, linked to adjacent tubes
+    const is3DShape = ['box', 'grid', 'cylinder', 'sphere', 'cone', 'prism', 'torus'].includes(config.shape);
+    const connDiaMm = config.connectorDiameterMm || (preset ? (tubeOptions.diameterMm || 16) + 4 : 20);
+    const connHtMm = config.connectorHeightMm || 20;
+    let connCount = 0;
+
+    for (let vi = 0; vi < vertices.length; vi++) {
+      const connectedEdges = ShapeGeometryGenerator.getVertexEdges(edges, vi);
+      if (connectedEdges.length < 2) continue;
+
+      // Link connector to adjacent tubes for group movement
+      const adjTubeIds = connectedEdges.map(ei => edgeTubeMap[ei]?.id).filter(Boolean);
+      const tubeBeforeId = adjTubeIds[0] || null;
+      const tubeAfterId = adjTubeIds[1] || adjTubeIds[0] || null;
+
+      if (is3DShape && connectedEdges.length >= 3) {
+        // 3D vertex with 3+ edges → sphere connector
+        this.connectorManager.createConnector({
+          position: vertices[vi].clone(),
+          tangent: new THREE.Vector3(0, 1, 0),
+          diameterMm: connDiaMm,
+          heightMm: connHtMm,
+          type: 'sphere',
+          color: '#111111',
+          tubeBeforeId,
+          tubeAfterId,
+        });
+        connCount++;
+      } else if (connectedEdges.length === 2) {
+        // Exactly 2 edges → angle connector
+        const eA = connectedEdges[0];
+        const eB = connectedEdges[1];
+        const angle = ShapeGeometryGenerator.getEdgeAngle(vertices, edges, eA, eB, vi);
+
+        const otherA = edges[eA][0] === vi ? edges[eA][1] : edges[eA][0];
+        const otherB = edges[eB][0] === vi ? edges[eB][1] : edges[eB][0];
+        const dirA = vertices[otherA].clone().sub(vertices[vi]).normalize();
+        const dirB = vertices[otherB].clone().sub(vertices[vi]).normalize();
+        const bisector = dirA.clone().add(dirB).normalize();
+        const normal = new THREE.Vector3().crossVectors(dirA, dirB).normalize();
+        if (normal.lengthSq() < 0.001) normal.set(0, 1, 0);
+
+        this.connectorManager.createConnector({
+          position: vertices[vi].clone(),
+          tangent: bisector.clone(),
+          diameterMm: connDiaMm,
+          heightMm: connHtMm,
+          type: 'angle',
+          angle,
+          normal,
+          bisector,
+          color: '#111111',
+          tubeBeforeId,
+          tubeAfterId,
+        });
+        connCount++;
+      } else if (connectedEdges.length >= 3) {
+        // 2D shape with 3+ edges at vertex (shouldn't normally happen for 2D polygons)
+        this.connectorManager.createConnector({
+          position: vertices[vi].clone(),
+          tangent: new THREE.Vector3(0, 1, 0),
+          diameterMm: connDiaMm,
+          heightMm: connHtMm,
+          type: 'sphere',
+          color: '#111111',
+          tubeBeforeId,
+          tubeAfterId,
+        });
+        connCount++;
+      }
+    }
+
+    // Status
+    const edgeCount = edges.length;
+    if (statusEl) {
+      statusEl.textContent = `Created ${config.shape}: ${edgeCount} tubes + ${connCount} connectors (grouped)`;
+    }
+
+    this._refreshAll();
+    this.app.sceneManager.requestRender();
+  }
+
+  // ── Resize / Reverse Tube ──────────────────────────────
+
+  _onResizeTube(tube, targetLengthMm) {
+    const curve = CurveBuilder.build(tube.controlPoints, tube.tension, tube.closed);
+    if (!curve) return;
+    const currentLength = CurveBuilder.getLength(curve) * 1000; // in mm
+    if (currentLength < 0.1) return;
+
+    const factor = targetLengthMm / currentLength;
+    this.undoManager.capture();
+    this.app.tubeManager.scaleTube(tube, factor);
+    this.propertiesPanel.show(tube);
+
+    const statusEl = document.getElementById('status-text');
+    if (statusEl) statusEl.textContent = `Resized "${tube.name}" to ${Math.round(targetLengthMm)}mm`;
+  }
+
+  _onReverseTube(tube) {
+    this.undoManager.capture();
+    this.app.tubeManager.reverseTube(tube);
+
+    const statusEl = document.getElementById('status-text');
+    if (statusEl) statusEl.textContent = `Reversed "${tube.name}" direction`;
+  }
+
+  /**
+   * Handle shape dimension changes for circles and rectangles.
+   * Regenerates control points preserving center and plane.
+   */
+  _onShapeDimensionChange(tube, shapeType, dims) {
+    this.undoManager.capture();
+    const statusEl = document.getElementById('status-text');
+
+    // Compute current center
+    const center = new THREE.Vector3();
+    for (const pt of tube.controlPoints) center.add(pt);
+    center.divideScalar(tube.controlPoints.length);
+
+    // Detect plane (from bounding box flatness)
+    const pts = tube.controlPoints;
+    const rangeX = Math.max(...pts.map(p => p.x)) - Math.min(...pts.map(p => p.x));
+    const rangeY = Math.max(...pts.map(p => p.y)) - Math.min(...pts.map(p => p.y));
+    const rangeZ = Math.max(...pts.map(p => p.z)) - Math.min(...pts.map(p => p.z));
+
+    let plane;
+    if (rangeY < rangeX * 0.1 && rangeY < rangeZ * 0.1) plane = 'XZ';
+    else if (rangeZ < rangeX * 0.1 && rangeZ < rangeY * 0.1) plane = 'XY';
+    else plane = 'YZ';
+
+    if (shapeType === 'circle') {
+      const radius = dims.diameter / 2;
+      const numPoints = tube.controlPoints.length || 36;
+      const newPoints = [];
+      for (let i = 0; i < numPoints; i++) {
+        const angle = (i / numPoints) * Math.PI * 2;
+        const a = Math.cos(angle) * radius;
+        const b = Math.sin(angle) * radius;
+        const pt = center.clone();
+        switch (plane) {
+          case 'XZ': pt.x += a; pt.z += b; break;
+          case 'XY': pt.x += a; pt.y += b; break;
+          case 'YZ': pt.y += a; pt.z += b; break;
+        }
+        newPoints.push(pt);
+      }
+      tube.controlPoints = newPoints;
+      this.app.tubeManager.updateTube(tube);
+      if (statusEl) statusEl.textContent = `Circle diameter: ${Math.round(dims.diameter * 1000)}mm`;
+    } else if (shapeType === 'rectangle') {
+      const hw = dims.width / 2;
+      const hh = dims.height / 2;
+
+      // Generate 4 corners
+      let c1, c2, c3, c4;
+      switch (plane) {
+        case 'XZ':
+          c1 = center.clone().add(new THREE.Vector3(-hw, 0, -hh));
+          c2 = center.clone().add(new THREE.Vector3( hw, 0, -hh));
+          c3 = center.clone().add(new THREE.Vector3( hw, 0,  hh));
+          c4 = center.clone().add(new THREE.Vector3(-hw, 0,  hh));
+          break;
+        case 'XY':
+          c1 = center.clone().add(new THREE.Vector3(-hw, -hh, 0));
+          c2 = center.clone().add(new THREE.Vector3( hw, -hh, 0));
+          c3 = center.clone().add(new THREE.Vector3( hw,  hh, 0));
+          c4 = center.clone().add(new THREE.Vector3(-hw,  hh, 0));
+          break;
+        case 'YZ':
+          c1 = center.clone().add(new THREE.Vector3(0, -hw, -hh));
+          c2 = center.clone().add(new THREE.Vector3(0,  hw, -hh));
+          c3 = center.clone().add(new THREE.Vector3(0,  hw,  hh));
+          c4 = center.clone().add(new THREE.Vector3(0, -hw,  hh));
+          break;
+      }
+
+      const corners = [c1, c2, c3, c4];
+      const pointsPerEdge = 10;
+      const newPoints = [];
+      for (let edge = 0; edge < 4; edge++) {
+        const from = corners[edge];
+        const to = corners[(edge + 1) % 4];
+        for (let i = 0; i < pointsPerEdge; i++) {
+          const t = i / pointsPerEdge;
+          newPoints.push(new THREE.Vector3().lerpVectors(from, to, t));
+        }
+      }
+
+      tube.controlPoints = newPoints;
+      this.app.tubeManager.updateTube(tube);
+      if (statusEl) statusEl.textContent = `Rectangle: ${Math.round(dims.width * 1000)}x${Math.round(dims.height * 1000)}mm`;
+    }
+  }
+
+  /**
    * Get the snap target model: prefer selected ref model, fall back to nearest.
    */
   _getSnapTargetModel(tube) {
@@ -1611,6 +2303,14 @@ export class UIManager {
         icon: icons._importRefIcon(), action: () => t._onImportRef() },
       { id: 'export', label: 'Export MVR', shortcut: 'Ctrl+E', category: 'file',
         icon: icons._exportIcon(), action: () => t._onExport() },
+
+      // Edge / Text tools
+      { id: 'map-edges', label: 'Map Edges', shortcut: 'M', category: 'draw',
+        icon: '<svg viewBox="0 0 24 24"><path d="M3 3l7 0 4 8-4 8H3" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/><path d="M14 3h7v18h-7" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg>',
+        action: () => t._onMapEdges(30) },
+      { id: 'text-to-tubes', label: 'Text to Tubes', shortcut: 'T', category: 'draw',
+        icon: '<svg viewBox="0 0 24 24"><text x="12" y="18" font-size="18" font-weight="bold" fill="currentColor" text-anchor="middle" font-family="sans-serif">T</text></svg>',
+        action: () => t._onTextToTubes() },
     ]);
   }
 
@@ -1638,6 +2338,8 @@ export class UIManager {
             <div class="help-row"><kbd>4</kbd><span>Rectangle shape tool</span></div>
             <div class="help-row"><kbd>5</kbd><span>Circle shape tool</span></div>
             <div class="help-row"><kbd>C</kbd><span>Cut / Split tube tool</span></div>
+            <div class="help-row"><kbd>M</kbd><span>Map Edges (ref model)</span></div>
+            <div class="help-row"><kbd>T</kbd><span>Text to Tubes</span></div>
           </div>
           <div class="help-section">
             <div class="help-section-title">Drawing</div>

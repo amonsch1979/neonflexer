@@ -27,6 +27,8 @@ export class Toolbar {
     this.onFocus = null;          // () => {}
     this.onIsolate = null;        // () => {}
     this.onCommandPanel = null;   // () => {}
+    this.onTextToTubes = null;    // () => {}
+    this.onShapeWizard = null;    // () => {}
 
     this._build();
   }
@@ -46,6 +48,10 @@ export class Toolbar {
     this.rectangleBtn = this._addButton(drawGroup, 'rectangle', 'Rectangle', this._rectangleIcon(), '4');
     this.circleBtn = this._addButton(drawGroup, 'circle', 'Circle', this._circleIcon(), '5');
     this.cutBtn = this._addButton(drawGroup, 'cut', 'Cut Tube', this._cutIcon(), 'C');
+    this.textBtn = this._addButton(drawGroup, 'text-to-tubes', 'Text to Tubes', this._textIcon(), 'T');
+    this.textBtn.classList.remove('active');
+    this.shapeWizBtn = this._addButton(drawGroup, 'shape-wizard', 'Shape Wizard', this._shapeWizIcon(), '6');
+    this.shapeWizBtn.classList.remove('active');
     row1.appendChild(drawGroup);
 
     // Fixture Preset group
@@ -373,6 +379,14 @@ export class Toolbar {
       if (this.onCommandPanel) this.onCommandPanel();
       return;
     }
+    if (id === 'text-to-tubes') {
+      if (this.onTextToTubes) this.onTextToTubes();
+      return;
+    }
+    if (id === 'shape-wizard') {
+      if (this.onShapeWizard) this.onShapeWizard();
+      return;
+    }
     if (id === 'focus') {
       if (this.onFocus) this.onFocus();
       return;
@@ -518,5 +532,11 @@ export class Toolbar {
   }
   _aboutIcon() {
     return `<svg viewBox="0 0 24 24" style="fill:none"><circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="1.5" fill="none"/><line x1="12" y1="11" x2="12" y2="17" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/><circle cx="12" cy="7.5" r="1.5" fill="currentColor" stroke="none"/></svg>`;
+  }
+  _textIcon() {
+    return `<svg viewBox="0 0 24 24"><text x="12" y="18" font-size="18" font-weight="bold" fill="currentColor" text-anchor="middle" font-family="sans-serif">T</text></svg>`;
+  }
+  _shapeWizIcon() {
+    return `<svg viewBox="0 0 24 24"><polygon points="12,2 2.5,9.5 6,20.5 18,20.5 21.5,9.5" fill="none" stroke="currentColor" stroke-width="1.5"/></svg>`;
   }
 }

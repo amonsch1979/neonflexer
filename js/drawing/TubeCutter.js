@@ -125,7 +125,7 @@ export class TubeCutter {
       return;
     }
 
-    const t = this._findNearestT(curve, hit.point);
+    const t = CurveBuilder.findNearestT(curve, hit.point);
     const curvePoint = curve.getPointAt(t);
     const tangent = curve.getTangentAt(t);
 

@@ -90,10 +90,18 @@ export class TubeManager {
   }
 
   /**
-   * Select a tube (single-select: clears multi-selection).
+   * Select a tube. If grouped, also selects all group members.
    */
   selectTube(tube) {
     this.selectTubeSingle(tube);
+    // Also select all group members for group-wide property editing
+    if (tube && tube.groupId) {
+      const members = this.getGroupMembers(tube);
+      for (const m of members) {
+        m.selected = true;
+        this.selectedTubeIds.add(m.id);
+      }
+    }
   }
 
   /**
@@ -235,6 +243,79 @@ export class TubeManager {
   }
 
   /**
+   * Insert a point on the curve at parameter t.
+   * @param {TubeModel} tube
+   * @param {number} t - curve parameter [0, 1]
+   * @returns {number} index of the newly inserted point
+   */
+  insertPointOnCurve(tube, t) {
+    const curve = CurveBuilder.build(tube.controlPoints, tube.tension, tube.closed);
+    if (!curve) return -1;
+
+    const newPoint = curve.getPointAt(t);
+    const segIndex = this._findSegmentIndex(curve, tube.controlPoints, t);
+    const insertIndex = segIndex + 1;
+    tube.insertPoint(insertIndex, newPoint);
+    this.updateTube(tube);
+    if (this.onTubeUpdated) this.onTubeUpdated(tube);
+    return insertIndex;
+  }
+
+  /**
+   * Scale all control points from centroid by a factor.
+   * @param {TubeModel} tube
+   * @param {number} factor - scale factor (e.g., 1.5 = 150%)
+   */
+  scaleTube(tube, factor) {
+    const center = new THREE.Vector3();
+    for (const pt of tube.controlPoints) center.add(pt);
+    center.divideScalar(tube.controlPoints.length);
+
+    for (const pt of tube.controlPoints) {
+      pt.sub(center).multiplyScalar(factor).add(center);
+    }
+    this.updateTube(tube);
+  }
+
+  /**
+   * Extend tube by adding a point extrapolated from the tangent at start or end.
+   * @param {TubeModel} tube
+   * @param {'start'|'end'} end - which end to extend
+   * @param {number} distance - extension distance in meters (default 0.1)
+   * @returns {number} index of the new point
+   */
+  extendTube(tube, end, distance = 0.1) {
+    const curve = CurveBuilder.build(tube.controlPoints, tube.tension, tube.closed);
+    if (!curve) return -1;
+
+    let newPoint, insertIndex;
+    if (end === 'start') {
+      const tangent = curve.getTangentAt(0).normalize();
+      newPoint = tube.controlPoints[0].clone().sub(tangent.multiplyScalar(distance));
+      tube.insertPoint(0, newPoint);
+      insertIndex = 0;
+    } else {
+      const tangent = curve.getTangentAt(1).normalize();
+      const last = tube.controlPoints[tube.controlPoints.length - 1];
+      newPoint = last.clone().add(tangent.multiplyScalar(distance));
+      tube.addPoint(newPoint);
+      insertIndex = tube.controlPoints.length - 1;
+    }
+
+    this.updateTube(tube);
+    return insertIndex;
+  }
+
+  /**
+   * Reverse tube direction (flip control points) and rebuild.
+   * @param {TubeModel} tube
+   */
+  reverseTube(tube) {
+    tube.reversePoints();
+    this.updateTube(tube);
+  }
+
+  /**
    * Split an open tube at curve parameter t into two new tubes.
    * Deletes the original and returns [tubeA, tubeB].
    */
@@ -278,6 +359,9 @@ export class TubeManager {
       pixelColor: tube.pixelColor,
       pixelEmissive: tube.pixelEmissive,
       dmxChannelsPerPixel: tube.dmxChannelsPerPixel,
+      isPlaceholder: tube.isPlaceholder,
+      facingDirection: tube.facingDirection,
+      placeholderName: tube.placeholderName,
       tension: tube.tension,
       closed: false,
       color: tube.color,
@@ -410,8 +494,8 @@ export class TubeManager {
     group.add(bodyMesh);
     tube.bodyMesh = bodyMesh;
 
-    // Pixel group (skip for uv-mapped mode — no viewport spheres)
-    if (tube.pixelMode === 'uv-mapped') {
+    // Pixel group (skip for uv-mapped mode and placeholders — no viewport spheres)
+    if (tube.pixelMode === 'uv-mapped' || tube.isPlaceholder) {
       tube.pixelGroup = null;
     } else {
       const pixelGroup = PixelDistributor.distribute(curve, tube);
