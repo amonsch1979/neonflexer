@@ -630,7 +630,7 @@ export class MVRExporter {
           }
 
           pixelFixtures += `
-            <Fixture name="${tubeName}_Pixel_${pi + pixelNameOffset}" uuid="${uuid}">
+            <Fixture name="${tubeName}_Pixel_${pi + pixelNameOffset + 1}" uuid="${uuid}">
               <Matrix>${matrix}</Matrix>
               <GDTFSpec>GenericLED.gdtf</GDTFSpec>
               <GDTFMode>${gdtfMode}</GDTFMode>

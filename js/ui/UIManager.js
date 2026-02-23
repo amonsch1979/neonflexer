@@ -260,13 +260,36 @@ export class UIManager {
 
     // Start Pixel Picker
     this.startPixelPicker = new StartPixelPicker(app.sceneManager);
-    this.startPixelPicker.onPick = (tube, pixelIndex) => {
-      tube.startPixel = pixelIndex;
+    this.startPixelPicker.onPick = (tube, pixelIndex, reverse) => {
+      this.undoManager.capture();
+      if (tube.closed) {
+        // Closed tube: rotate control points so picked pixel becomes first.
+        // All pixels are preserved — no skipping, just a new start position.
+        this._rotateClosedTubeStart(tube, pixelIndex);
+        if (reverse) {
+          // Counter-clockwise: reverse the control points after rotation
+          // so pixel numbering goes the opposite direction.
+          // After reverse, the picked start point moves to the last position —
+          // shift it back to index 0 so pixel #1 stays at the picked location.
+          tube.controlPoints.reverse();
+          const last = tube.controlPoints.pop();
+          tube.controlPoints.unshift(last);
+        }
+      } else {
+        tube.startPixel = pixelIndex;
+      }
       this.app.tubeManager.updateTube(tube);
       this.propertiesPanel.show(tube);
       this.setTool('select'); // restore select mode
       const statusEl = document.getElementById('status-text');
-      if (statusEl) statusEl.textContent = `Start pixel set to #${pixelIndex} on "${tube.name}"`;
+      if (statusEl) {
+        if (tube.closed) {
+          const dir = reverse ? 'counter-clockwise' : 'clockwise';
+          statusEl.textContent = `Start pixel set ${dir} on "${tube.name}"`;
+        } else {
+          statusEl.textContent = `Start pixel set to #${pixelIndex + 1} on "${tube.name}"`;
+        }
+      }
     };
     this.startPixelPicker.onCancel = () => {
       this.setTool('select'); // restore select mode
@@ -993,6 +1016,41 @@ export class UIManager {
     this.startPixelPicker.activate(tube);
     const statusEl = document.getElementById('status-text');
     if (statusEl) statusEl.textContent = 'Pick Start Pixel — Hover over pixels, click to set | Esc to cancel';
+  }
+
+  /**
+   * Rotate a closed tube's control points so the picked pixel becomes the first.
+   * The pixel before the picked one becomes the last — full rotation, no skipping.
+   */
+  _rotateClosedTubeStart(tube, pixelIndex) {
+    const curve = CurveBuilder.build(tube.controlPoints, tube.tension, tube.closed);
+    if (!curve) return;
+
+    const { points } = CurveBuilder.getPixelPoints(curve, tube.pixelsPerMeter);
+    if (points.length === 0 || pixelIndex >= points.length) return;
+
+    // Find the control point nearest to the picked pixel's world position
+    const pickedPos = points[pixelIndex];
+    let bestIdx = 0;
+    let bestDist = Infinity;
+    for (let i = 0; i < tube.controlPoints.length; i++) {
+      const d = pickedPos.distanceToSquared(tube.controlPoints[i]);
+      if (d < bestDist) {
+        bestDist = d;
+        bestIdx = i;
+      }
+    }
+
+    if (bestIdx > 0) {
+      // Rotate control points: [bestIdx..end, 0..bestIdx-1]
+      tube.controlPoints = [
+        ...tube.controlPoints.slice(bestIdx),
+        ...tube.controlPoints.slice(0, bestIdx),
+      ];
+    }
+
+    // All pixels are now active from the new start — no skipping
+    tube.startPixel = 0;
   }
 
   // ── Snap to Ref ────────────────────────────────────────

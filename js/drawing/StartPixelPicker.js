@@ -4,19 +4,24 @@ import { CurveBuilder } from './CurveBuilder.js';
 /**
  * Interactive mode for picking a start pixel on a tube.
  * Hover over the tube body to highlight nearest pixel; click to set startPixel.
+ * For closed tubes, a direction popup (CW / CCW) appears after picking.
+ * Callback: onPick(tube, pixelIndex, reverse)
+ *   reverse = true  → counterclockwise (reverse control point order)
+ *   reverse = false → clockwise (keep control point order)
  */
 export class StartPixelPicker {
   constructor(sceneManager) {
     this.sceneManager = sceneManager;
     this.active = false;
     this.tube = null;
-    this.onPick = null;  // (tube, pixelIndex) => {}
+    this.onPick = null;  // (tube, pixelIndex, reverse) => {}
     this.onCancel = null; // () => {}
 
     this._previewGroup = null;
     this._pixelMeshes = [];
     this._allPoints = [];
     this._hoveredIndex = -1;
+    this._dirPopup = null; // direction popup element
 
     // Hover marker — renders on top of everything so it's always visible
     this._markerGeo = new THREE.RingGeometry(0.005, 0.009, 24);
@@ -63,6 +68,7 @@ export class StartPixelPicker {
     if (!this.active) return;
     this.active = false;
     this._removePreview();
+    this._removeDirPopup();
 
     const canvas = this.sceneManager.canvas;
     canvas.style.cursor = '';
@@ -101,7 +107,9 @@ export class StartPixelPicker {
     const startPx = tube.startPixel || 0;
 
     for (let i = 0; i < points.length; i++) {
-      const mat = i < startPx ? this._matSkipped : this._matActive;
+      // Closed tubes: all pixels are active (rotation, not skipping)
+      // Open tubes: pixels before startPx are dimmed (skipped)
+      const mat = (!tube.closed && i < startPx) ? this._matSkipped : this._matActive;
       const mesh = new THREE.Mesh(geo, mat);
       mesh.position.copy(points[i]);
       mesh.renderOrder = 998;
@@ -157,6 +165,8 @@ export class StartPixelPicker {
 
   _onPointerMove(e) {
     if (!this.active || this._allPoints.length === 0) return;
+    // Don't update hover while direction popup is showing
+    if (this._dirPopup) return;
 
     // Raycast against tube body (large target, easy to hit)
     const targets = [];
@@ -178,6 +188,7 @@ export class StartPixelPicker {
 
       if (idx >= 0 && idx < this._allPoints.length) {
         this._hoveredIndex = idx;
+        const display = idx + 1; // 1-based for user display
 
         // Position marker ring at the pixel, facing the camera
         this._marker.position.copy(this._allPoints[idx]);
@@ -185,13 +196,19 @@ export class StartPixelPicker {
         this._marker.visible = true;
 
         // Position label above
-        this._updateLabel(`#${idx}`);
+        this._updateLabel(`#${display}`);
         this._labelSprite.position.copy(this._allPoints[idx]);
         this._labelSprite.position.y += this.tube.outerRadius * 3;
         this._labelSprite.visible = true;
 
         const statusEl = document.getElementById('status-text');
-        if (statusEl) statusEl.textContent = `Pick Start Pixel — Pixel #${idx} of ${this._allPoints.length} | Click to set, Esc to cancel`;
+        if (statusEl) {
+          if (this.tube.closed) {
+            statusEl.textContent = `Pick Start Pixel — Pixel ${display} of ${this._allPoints.length} becomes first pixel | Click to set, Esc to cancel`;
+          } else {
+            statusEl.textContent = `Pick Start Pixel — Pixel ${display} of ${this._allPoints.length} | Click to set, Esc to cancel`;
+          }
+        }
       }
     } else {
       this._hoveredIndex = -1;
@@ -206,14 +223,22 @@ export class StartPixelPicker {
     e.stopPropagation();
     e.preventDefault();
 
+    // If direction popup is open, ignore clicks on the canvas (popup handles itself)
+    if (this._dirPopup) return;
+
     if (this._hoveredIndex < 0) return;
 
     const pickedIndex = this._hoveredIndex;
     const tube = this.tube;
 
-    this.deactivate();
-
-    if (this.onPick) this.onPick(tube, pickedIndex);
+    if (tube.closed) {
+      // Show direction popup for closed tubes
+      this._showDirectionPopup(tube, pickedIndex, e.clientX, e.clientY);
+    } else {
+      // Open tubes: immediate pick, no direction choice
+      this.deactivate();
+      if (this.onPick) this.onPick(tube, pickedIndex, false);
+    }
   }
 
   _onKeyDown(e) {
@@ -221,8 +246,110 @@ export class StartPixelPicker {
     if (e.key === 'Escape') {
       e.preventDefault();
       e.stopImmediatePropagation();
+      if (this._dirPopup) {
+        // Close direction popup, go back to picking
+        this._removeDirPopup();
+        return;
+      }
       this.deactivate();
       if (this.onCancel) this.onCancel();
+    }
+  }
+
+  // ── Direction popup (closed tubes) ─────────────────────
+
+  _showDirectionPopup(tube, pickedIndex, mouseX, mouseY) {
+    this._removeDirPopup();
+
+    const popup = document.createElement('div');
+    popup.style.cssText = `
+      position: fixed;
+      z-index: 1100;
+      background: var(--bg-secondary, #16213e);
+      border: 1px solid var(--accent-dim, #0097b2);
+      border-radius: 10px;
+      padding: 12px 16px;
+      box-shadow: 0 6px 30px rgba(0,0,0,0.6), 0 0 20px rgba(0,212,255,0.2);
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      min-width: 180px;
+      font-family: var(--font-ui, sans-serif);
+    `;
+
+    const title = document.createElement('div');
+    title.style.cssText = `
+      color: var(--accent, #00d4ff);
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      text-align: center;
+      margin-bottom: 2px;
+    `;
+    title.textContent = 'Pixel Direction';
+    popup.appendChild(title);
+
+    const makeBtn = (label, icon, reverse) => {
+      const btn = document.createElement('button');
+      btn.style.cssText = `
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 8px;
+        padding: 8px 14px;
+        background: var(--bg-panel, #0f3460);
+        border: 1px solid var(--border, #2a4a7f);
+        border-radius: 6px;
+        color: #e0e0e0;
+        font-size: 13px;
+        font-family: var(--font-ui, sans-serif);
+        cursor: pointer;
+        transition: background 0.15s, border-color 0.15s;
+      `;
+      btn.innerHTML = `<span style="font-size:16px">${icon}</span> ${label}`;
+      btn.addEventListener('mouseenter', () => {
+        btn.style.background = 'var(--accent-glow, rgba(0,212,255,0.3))';
+        btn.style.borderColor = 'var(--accent, #00d4ff)';
+      });
+      btn.addEventListener('mouseleave', () => {
+        btn.style.background = 'var(--bg-panel, #0f3460)';
+        btn.style.borderColor = 'var(--border, #2a4a7f)';
+      });
+      btn.addEventListener('click', (ev) => {
+        ev.stopPropagation();
+        this._removeDirPopup();
+        this.deactivate();
+        if (this.onPick) this.onPick(tube, pickedIndex, reverse);
+      });
+      return btn;
+    };
+
+    popup.appendChild(makeBtn('Clockwise', '\u21BB', false));
+    popup.appendChild(makeBtn('Counter-clockwise', '\u21BA', true));
+
+    document.body.appendChild(popup);
+
+    // Position near mouse, clamped to viewport
+    const rect = popup.getBoundingClientRect();
+    let x = mouseX + 12;
+    let y = mouseY - rect.height / 2;
+    if (x + rect.width > window.innerWidth - 8) x = mouseX - rect.width - 12;
+    if (y < 8) y = 8;
+    if (y + rect.height > window.innerHeight - 8) y = window.innerHeight - rect.height - 8;
+    popup.style.left = x + 'px';
+    popup.style.top = y + 'px';
+
+    this._dirPopup = popup;
+
+    const statusEl = document.getElementById('status-text');
+    if (statusEl) statusEl.textContent = 'Choose pixel direction — Clockwise or Counter-clockwise | Esc to go back';
+  }
+
+  _removeDirPopup() {
+    if (this._dirPopup) {
+      this._dirPopup.remove();
+      this._dirPopup = null;
     }
   }
 
