@@ -1,4 +1,4 @@
-# MAGICTOOLBOX NEONFLEXER — Beta v1.3.0
+# MAGICTOOLBOX NEONFLEXER — Beta v1.3.1
 
 3D NeonFlex LED tube designer for lighting professionals. Draw tubes in 3D, configure LED pixels, set DMX patch, and export as MVR for direct import into Capture, WYSIWYG, Depence, or any MVR-compatible visualizer.
 
@@ -223,6 +223,11 @@ Tube bodies are exported as **GLB meshes with clean 0→1 UV coordinates** along
 You can have some tubes in Discrete mode and others in UV Mapped mode in the same project. The MVR export handles both correctly — discrete tubes get fixture elements, UV-mapped tubes get clean mesh geometry only.
 
 ## Changelog
+
+### Beta v1.3.1 — Start Pixel Direction Picker, Auto-Select After Draw
+- **Visual Direction Picker** — On closed tubes, after picking the start pixel, the two adjacent pixels highlight in green. Click the one that should come next to set the pixel direction — replaces the confusing CW/CCW popup
+- **Exact Start Pixel Placement** — The picked pixel now becomes exactly pixel #1 in both viewport and MVR export, with sub-millimeter precision regardless of camera angle
+- **Auto-Select After Draw** — Drawing a circle or rectangle now keeps the tube selected with the properties panel open, so you can immediately adjust settings without re-clicking
 
 ### Beta v1.3.0 — Housing + Diffuser Materials, Pixel Beam Orientation
 - **Housing + Diffuser Split** — Square and rectangular tubes now render as two separate meshes: a black opaque U-channel housing and a selectable transparent diffuser cap

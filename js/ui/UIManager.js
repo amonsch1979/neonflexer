@@ -163,9 +163,16 @@ export class UIManager {
       if (refModel) {
         // Deselect tube when a ref model is selected
         this.app.tubeManager.selectTube(null);
+        this.propertiesPanel.show(refModel);
+      } else {
+        // Ref model deselected — show selected tube if any, otherwise clear
+        const selectedTube = this.app.tubeManager.selectedTube;
+        if (selectedTube) {
+          this.propertiesPanel.show(selectedTube);
+        } else {
+          this.propertiesPanel.show(null);
+        }
       }
-      // Show ref model properties, or clear panel if deselected
-      this.propertiesPanel.show(refModel);
       this._refreshTubeList();
       app.sceneManager.requestRender();
     };
@@ -263,18 +270,8 @@ export class UIManager {
     this.startPixelPicker.onPick = (tube, pixelIndex, reverse) => {
       this.undoManager.capture();
       if (tube.closed) {
-        // Closed tube: rotate control points so picked pixel becomes first.
-        // All pixels are preserved — no skipping, just a new start position.
-        this._rotateClosedTubeStart(tube, pixelIndex);
-        if (reverse) {
-          // Counter-clockwise: reverse the control points after rotation
-          // so pixel numbering goes the opposite direction.
-          // After reverse, the picked start point moves to the last position —
-          // shift it back to index 0 so pixel #1 stays at the picked location.
-          tube.controlPoints.reverse();
-          const last = tube.controlPoints.pop();
-          tube.controlPoints.unshift(last);
-        }
+        // Closed tube: rotate + fine-tune so picked pixel becomes exactly pixel #1.
+        this._rotateClosedTubeStart(tube, pixelIndex, reverse);
       } else {
         tube.startPixel = pixelIndex;
       }
@@ -1019,37 +1016,77 @@ export class UIManager {
   }
 
   /**
-   * Rotate a closed tube's control points so the picked pixel becomes the first.
-   * The pixel before the picked one becomes the last — full rotation, no skipping.
+   * Rotate a closed tube's control points so the picked pixel becomes exactly
+   * pixel #1. Three-step approach:
+   *   1. Coarse rotation: shift CPs by the ideal amount
+   *   2. Reverse CPs if direction is backward
+   *   3. Fine-tune: iteratively nudge CP #0 until pixel #0 lands exactly
+   *      at the picked world position (sub-millimeter precision)
    */
-  _rotateClosedTubeStart(tube, pixelIndex) {
+  _rotateClosedTubeStart(tube, pixelIndex, reverse = false) {
     const curve = CurveBuilder.build(tube.controlPoints, tube.tension, tube.closed);
     if (!curve) return;
 
-    const { points } = CurveBuilder.getPixelPoints(curve, tube.pixelsPerMeter);
-    if (points.length === 0 || pixelIndex >= points.length) return;
+    const { points, count } = CurveBuilder.getPixelPoints(curve, tube.pixelsPerMeter);
+    if (count === 0 || pixelIndex >= count) return;
 
-    // Find the control point nearest to the picked pixel's world position
-    const pickedPos = points[pixelIndex];
-    let bestIdx = 0;
+    const pickedPos = points[pixelIndex].clone();
+    const N = tube.controlPoints.length;
+
+    // ── Step 1: Coarse rotation ──
+    // Pixel i is at t≈(i+0.5)/count, CP j is at t≈j/N
+    const idealShift = Math.round(pixelIndex * N / count) % N;
+
+    // Try ideal ±1 to find which puts pixel #0 closest to picked position
+    let bestShift = 0;
     let bestDist = Infinity;
-    for (let i = 0; i < tube.controlPoints.length; i++) {
-      const d = pickedPos.distanceToSquared(tube.controlPoints[i]);
+
+    for (let delta = -1; delta <= 1; delta++) {
+      const shift = ((idealShift + delta) % N + N) % N;
+      const rotated = [
+        ...tube.controlPoints.slice(shift),
+        ...tube.controlPoints.slice(0, shift),
+      ];
+      const testCurve = CurveBuilder.build(rotated, tube.tension, tube.closed);
+      if (!testCurve) continue;
+      const testPixels = CurveBuilder.getPixelPoints(testCurve, tube.pixelsPerMeter);
+      if (testPixels.points.length === 0) continue;
+
+      const d = pickedPos.distanceToSquared(testPixels.points[0]);
       if (d < bestDist) {
         bestDist = d;
-        bestIdx = i;
+        bestShift = shift;
       }
     }
 
-    if (bestIdx > 0) {
-      // Rotate control points: [bestIdx..end, 0..bestIdx-1]
+    if (bestShift > 0) {
       tube.controlPoints = [
-        ...tube.controlPoints.slice(bestIdx),
-        ...tube.controlPoints.slice(0, bestIdx),
+        ...tube.controlPoints.slice(bestShift),
+        ...tube.controlPoints.slice(0, bestShift),
       ];
     }
 
-    // All pixels are now active from the new start — no skipping
+    // ── Step 2: Reverse direction if needed ──
+    if (reverse) {
+      tube.controlPoints.reverse();
+      const last = tube.controlPoints.pop();
+      tube.controlPoints.unshift(last);
+    }
+
+    // ── Step 3: Fine-tune CP #0 so pixel #0 lands exactly at picked position ──
+    // Iterative correction: nudge CP #0 by the error between pixel #0 and target.
+    // CatmullRom passes through CPs, so moving CP #0 approximately moves nearby
+    // curve points by the same amount. Converges in 2-3 iterations.
+    for (let iter = 0; iter < 4; iter++) {
+      const c = CurveBuilder.build(tube.controlPoints, tube.tension, tube.closed);
+      if (!c) break;
+      const px = CurveBuilder.getPixelPoints(c, tube.pixelsPerMeter);
+      if (px.points.length === 0) break;
+      const error = pickedPos.clone().sub(px.points[0]);
+      if (error.lengthSq() < 1e-10) break; // < 0.01mm — exact enough
+      tube.controlPoints[0] = tube.controlPoints[0].clone().add(error);
+    }
+
     tube.startPixel = 0;
   }
 
@@ -2461,7 +2498,7 @@ export class UIManager {
           </div>
         </div>
         <div style="padding:12px 20px;border-top:1px solid var(--border);text-align:center;">
-          <a href="about.html" target="_blank" style="color:var(--accent);font-size:13px;font-weight:600;text-decoration:none;">Release Notes &amp; Info — Beta v1.3.0</a>
+          <a href="about.html" target="_blank" style="color:var(--accent);font-size:13px;font-weight:600;text-decoration:none;">Release Notes &amp; Info — Beta v1.3.1</a>
           <div style="margin-top:6px;font-size:11px;color:var(--text-muted);">BYFEIGNASSE | MAGICTOOLBOX</div>
         </div>
       </div>

@@ -4,10 +4,11 @@ import { CurveBuilder } from './CurveBuilder.js';
 /**
  * Interactive mode for picking a start pixel on a tube.
  * Hover over the tube body to highlight nearest pixel; click to set startPixel.
- * For closed tubes, a direction popup (CW / CCW) appears after picking.
+ * For closed tubes, after picking: highlights 2 adjacent pixels and lets user
+ * click which one comes next to determine direction (replaces CW/CCW popup).
  * Callback: onPick(tube, pixelIndex, reverse)
- *   reverse = true  → counterclockwise (reverse control point order)
- *   reverse = false → clockwise (keep control point order)
+ *   reverse = true  → backward (reverse control point order)
+ *   reverse = false → forward (keep control point order)
  */
 export class StartPixelPicker {
   constructor(sceneManager) {
@@ -21,7 +22,13 @@ export class StartPixelPicker {
     this._pixelMeshes = [];
     this._allPoints = [];
     this._hoveredIndex = -1;
-    this._dirPopup = null; // direction popup element
+    this._dirPopup = null; // direction text label element
+
+    // Direction mode state (closed tubes)
+    this._directionMode = false;
+    this._pickedIndex = -1;
+    this._adjIndices = []; // [prevIndex, nextIndex]
+    this._savedScales = new Map(); // pixelIndex → original scale
 
     // Hover marker — renders on top of everything so it's always visible
     this._markerGeo = new THREE.RingGeometry(0.005, 0.009, 24);
@@ -43,6 +50,9 @@ export class StartPixelPicker {
     // Materials for pixel preview dots
     this._matActive = new THREE.MeshBasicMaterial({ color: 0x00d4ff, depthTest: false, transparent: true, opacity: 0.7 });
     this._matSkipped = new THREE.MeshBasicMaterial({ color: 0xff4444, depthTest: false, transparent: true, opacity: 0.3 });
+    this._matDirection = new THREE.MeshBasicMaterial({ color: 0x44ff88, depthTest: false, transparent: true, opacity: 0.9 });
+    this._matDimmed = new THREE.MeshBasicMaterial({ color: 0x444466, depthTest: false, transparent: true, opacity: 0.15 });
+    this._matPicked = new THREE.MeshBasicMaterial({ color: 0xffff00, depthTest: false, transparent: true, opacity: 0.95 });
 
     this._onPointerMove = this._onPointerMove.bind(this);
     this._onPointerDown = this._onPointerDown.bind(this);
@@ -67,6 +77,10 @@ export class StartPixelPicker {
   deactivate() {
     if (!this.active) return;
     this.active = false;
+    this._directionMode = false;
+    this._pickedIndex = -1;
+    this._adjIndices = [];
+    this._savedScales.clear();
     this._removePreview();
     this._removeDirPopup();
 
@@ -165,8 +179,11 @@ export class StartPixelPicker {
 
   _onPointerMove(e) {
     if (!this.active || this._allPoints.length === 0) return;
-    // Don't update hover while direction popup is showing
-    if (this._dirPopup) return;
+
+    if (this._directionMode) {
+      this._onPointerMoveDirection(e);
+      return;
+    }
 
     // Raycast against tube body (large target, easy to hit)
     const targets = [];
@@ -217,14 +234,46 @@ export class StartPixelPicker {
     }
   }
 
+  _onPointerMoveDirection(e) {
+    // Only raycast against the 2 adjacent pixel meshes
+    const adjMeshes = this._adjIndices.map(i => this._pixelMeshes[i]);
+    const hits = this.sceneManager.raycastObjects(e.clientX, e.clientY, adjMeshes);
+
+    if (hits.length > 0) {
+      const idx = hits[0].object.userData.pixelIndex;
+      this._hoveredIndex = idx;
+
+      // Show marker ring on hovered adjacent pixel
+      this._marker.position.copy(this._allPoints[idx]);
+      this._marker.lookAt(this.sceneManager.camera.position);
+      this._marker.visible = true;
+
+      // Show label
+      const display = idx + 1;
+      this._updateLabel(`#${display}`);
+      this._labelSprite.position.copy(this._allPoints[idx]);
+      this._labelSprite.position.y += this.tube.outerRadius * 3;
+      this._labelSprite.visible = true;
+
+      this.sceneManager.canvas.style.cursor = 'pointer';
+    } else {
+      this._hoveredIndex = -1;
+      this._marker.visible = false;
+      this._labelSprite.visible = false;
+      this.sceneManager.canvas.style.cursor = 'crosshair';
+    }
+  }
+
   _onPointerDown(e) {
     if (!this.active || e.button !== 0) return;
 
     e.stopPropagation();
     e.preventDefault();
 
-    // If direction popup is open, ignore clicks on the canvas (popup handles itself)
-    if (this._dirPopup) return;
+    if (this._directionMode) {
+      this._onPointerDownDirection(e);
+      return;
+    }
 
     if (this._hoveredIndex < 0) return;
 
@@ -232,8 +281,8 @@ export class StartPixelPicker {
     const tube = this.tube;
 
     if (tube.closed) {
-      // Show direction popup for closed tubes
-      this._showDirectionPopup(tube, pickedIndex, e.clientX, e.clientY);
+      // Enter direction mode: let user click adjacent pixel to set direction
+      this._enterDirectionMode(pickedIndex);
     } else {
       // Open tubes: immediate pick, no direction choice
       this.deactivate();
@@ -241,14 +290,36 @@ export class StartPixelPicker {
     }
   }
 
+  _onPointerDownDirection(e) {
+    if (this._hoveredIndex < 0) return; // clicked elsewhere, stay in direction mode
+
+    const clickedIdx = this._hoveredIndex;
+    const [prevIdx, nextIdx] = this._adjIndices;
+    const tube = this.tube;
+    const pickedIndex = this._pickedIndex;
+
+    if (clickedIdx === nextIdx) {
+      // Clicked forward neighbor → forward direction (reverse = false)
+      this._removeDirPopup();
+      this.deactivate();
+      if (this.onPick) this.onPick(tube, pickedIndex, false);
+    } else if (clickedIdx === prevIdx) {
+      // Clicked backward neighbor → reverse direction (reverse = true)
+      this._removeDirPopup();
+      this.deactivate();
+      if (this.onPick) this.onPick(tube, pickedIndex, true);
+    }
+    // else: clicked something else, ignore
+  }
+
   _onKeyDown(e) {
     if (!this.active) return;
     if (e.key === 'Escape') {
       e.preventDefault();
       e.stopImmediatePropagation();
-      if (this._dirPopup) {
-        // Close direction popup, go back to picking
-        this._removeDirPopup();
+      if (this._directionMode) {
+        // Exit direction mode, go back to pixel picking
+        this._exitDirectionMode();
         return;
       }
       this.deactivate();
@@ -256,10 +327,81 @@ export class StartPixelPicker {
     }
   }
 
-  // ── Direction popup (closed tubes) ─────────────────────
+  // ── Direction mode (closed tubes) ──────────────────────
 
-  _showDirectionPopup(tube, pickedIndex, mouseX, mouseY) {
+  _enterDirectionMode(pickedIndex) {
+    const N = this._allPoints.length;
+    const prevIdx = (pickedIndex - 1 + N) % N;
+    const nextIdx = (pickedIndex + 1) % N;
+
+    this._directionMode = true;
+    this._pickedIndex = pickedIndex;
+    this._adjIndices = [prevIdx, nextIdx];
+    this._savedScales.clear();
+
+    // Dim all pixels, then highlight picked + adjacent
+    for (let i = 0; i < this._pixelMeshes.length; i++) {
+      const mesh = this._pixelMeshes[i];
+      this._savedScales.set(i, mesh.scale.x);
+      mesh.material = this._matDimmed;
+      mesh.scale.setScalar(1);
+    }
+
+    // Picked pixel: yellow
+    this._pixelMeshes[pickedIndex].material = this._matPicked;
+    this._pixelMeshes[pickedIndex].scale.setScalar(1.3);
+
+    // Adjacent pixels: bright green, enlarged
+    this._pixelMeshes[prevIdx].material = this._matDirection;
+    this._pixelMeshes[prevIdx].scale.setScalar(1.8);
+    this._pixelMeshes[nextIdx].material = this._matDirection;
+    this._pixelMeshes[nextIdx].scale.setScalar(1.8);
+
+    // Hide the hover marker (will reappear on hover over adjacent)
+    this._marker.visible = false;
+    this._labelSprite.visible = false;
+
+    // Show "Choose pixel direction" text popup near picked pixel
+    this._showDirLabel(pickedIndex);
+
+    const statusEl = document.getElementById('status-text');
+    if (statusEl) statusEl.textContent = 'Click the next pixel to set direction | Esc to go back';
+  }
+
+  _exitDirectionMode() {
+    this._directionMode = false;
+    this._pickedIndex = -1;
+    this._adjIndices = [];
+    this._marker.visible = false;
+    this._labelSprite.visible = false;
     this._removeDirPopup();
+
+    // Restore all pixel materials to normal preview state
+    const startPx = this.tube.startPixel || 0;
+    for (let i = 0; i < this._pixelMeshes.length; i++) {
+      const mesh = this._pixelMeshes[i];
+      const mat = (!this.tube.closed && i < startPx) ? this._matSkipped : this._matActive;
+      mesh.material = mat;
+      mesh.scale.setScalar(1);
+    }
+    this._savedScales.clear();
+
+    const statusEl = document.getElementById('status-text');
+    if (statusEl) statusEl.textContent = 'Pick Start Pixel — hover over tube and click a pixel | Esc to cancel';
+  }
+
+  _showDirLabel(pickedIndex) {
+    this._removeDirPopup();
+
+    // Project picked pixel 3D position to screen
+    const pos3 = this._allPoints[pickedIndex].clone();
+    pos3.project(this.sceneManager.camera);
+    const canvas = this.sceneManager.canvas;
+    const screenX = (pos3.x * 0.5 + 0.5) * canvas.clientWidth;
+    const screenY = (-pos3.y * 0.5 + 0.5) * canvas.clientHeight;
+
+    // Get canvas position on page
+    const canvasRect = canvas.getBoundingClientRect();
 
     const popup = document.createElement('div');
     popup.style.cssText = `
@@ -267,83 +409,33 @@ export class StartPixelPicker {
       z-index: 1100;
       background: var(--bg-secondary, #16213e);
       border: 1px solid var(--accent-dim, #0097b2);
-      border-radius: 10px;
-      padding: 12px 16px;
-      box-shadow: 0 6px 30px rgba(0,0,0,0.6), 0 0 20px rgba(0,212,255,0.2);
-      display: flex;
-      flex-direction: column;
-      gap: 8px;
-      min-width: 180px;
+      border-radius: 8px;
+      padding: 8px 14px;
+      box-shadow: 0 4px 20px rgba(0,0,0,0.5), 0 0 12px rgba(0,212,255,0.15);
       font-family: var(--font-ui, sans-serif);
-    `;
-
-    const title = document.createElement('div');
-    title.style.cssText = `
       color: var(--accent, #00d4ff);
-      font-size: 11px;
+      font-size: 12px;
       font-weight: 600;
       text-transform: uppercase;
       letter-spacing: 0.5px;
       text-align: center;
-      margin-bottom: 2px;
+      pointer-events: none;
+      white-space: nowrap;
     `;
-    title.textContent = 'Pixel Direction';
-    popup.appendChild(title);
-
-    const makeBtn = (label, icon, reverse) => {
-      const btn = document.createElement('button');
-      btn.style.cssText = `
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        gap: 8px;
-        padding: 8px 14px;
-        background: var(--bg-panel, #0f3460);
-        border: 1px solid var(--border, #2a4a7f);
-        border-radius: 6px;
-        color: #e0e0e0;
-        font-size: 13px;
-        font-family: var(--font-ui, sans-serif);
-        cursor: pointer;
-        transition: background 0.15s, border-color 0.15s;
-      `;
-      btn.innerHTML = `<span style="font-size:16px">${icon}</span> ${label}`;
-      btn.addEventListener('mouseenter', () => {
-        btn.style.background = 'var(--accent-glow, rgba(0,212,255,0.3))';
-        btn.style.borderColor = 'var(--accent, #00d4ff)';
-      });
-      btn.addEventListener('mouseleave', () => {
-        btn.style.background = 'var(--bg-panel, #0f3460)';
-        btn.style.borderColor = 'var(--border, #2a4a7f)';
-      });
-      btn.addEventListener('click', (ev) => {
-        ev.stopPropagation();
-        this._removeDirPopup();
-        this.deactivate();
-        if (this.onPick) this.onPick(tube, pickedIndex, reverse);
-      });
-      return btn;
-    };
-
-    popup.appendChild(makeBtn('Clockwise', '\u21BB', false));
-    popup.appendChild(makeBtn('Counter-clockwise', '\u21BA', true));
-
+    popup.textContent = 'Click next pixel to set direction';
     document.body.appendChild(popup);
 
-    // Position near mouse, clamped to viewport
+    // Position above the picked pixel, clamped to viewport
     const rect = popup.getBoundingClientRect();
-    let x = mouseX + 12;
-    let y = mouseY - rect.height / 2;
-    if (x + rect.width > window.innerWidth - 8) x = mouseX - rect.width - 12;
-    if (y < 8) y = 8;
-    if (y + rect.height > window.innerHeight - 8) y = window.innerHeight - rect.height - 8;
+    let x = canvasRect.left + screenX - rect.width / 2;
+    let y = canvasRect.top + screenY - rect.height - 20;
+    if (x < 8) x = 8;
+    if (x + rect.width > window.innerWidth - 8) x = window.innerWidth - rect.width - 8;
+    if (y < 8) y = canvasRect.top + screenY + 20; // flip below if no room above
     popup.style.left = x + 'px';
     popup.style.top = y + 'px';
 
     this._dirPopup = popup;
-
-    const statusEl = document.getElementById('status-text');
-    if (statusEl) statusEl.textContent = 'Choose pixel direction — Clockwise or Counter-clockwise | Esc to go back';
   }
 
   _removeDirPopup() {
@@ -400,6 +492,9 @@ export class StartPixelPicker {
     this._markerMat.dispose();
     this._matActive.dispose();
     this._matSkipped.dispose();
+    this._matDirection.dispose();
+    this._matDimmed.dispose();
+    this._matPicked.dispose();
     if (this._labelSprite.material.map) this._labelSprite.material.map.dispose();
     if (this._labelSprite.material) this._labelSprite.material.dispose();
   }

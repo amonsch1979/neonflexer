@@ -301,7 +301,7 @@ export class Toolbar {
     label.style.fontSize = '11px';
     label.style.letterSpacing = '1px';
     label.style.fontWeight = '600';
-    label.textContent = 'NEONFLEXER v1.3.0';
+    label.textContent = 'NEONFLEXER v1.3.1';
     branding.appendChild(label);
 
     row2.appendChild(branding);
