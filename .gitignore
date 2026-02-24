@@ -15,5 +15,8 @@ EX3.jpg
 # LEDStructures branded edition (private, not for GitHub)
 neonflexer Ledstructures Edition/
 
+# Vendor dependencies (downloaded via download-vendor.sh)
+vendor/
+
 # Claude Code
 .claude/
