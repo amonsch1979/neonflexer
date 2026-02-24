@@ -210,7 +210,39 @@
     </div>
 
     <div class="card">
-      <h2>What's New</h2>
+      <h2>What's New in v1.3.1</h2>
+
+      <h3>Visual Direction Picker</h3>
+      <p>On closed tubes, after picking the start pixel, the two adjacent pixels highlight in green. Click the one that should come next to set the pixel direction — replaces the old CW/CCW popup which was confusing depending on camera angle.</p>
+
+      <h3>Exact Start Pixel Placement</h3>
+      <p>The picked pixel now becomes exactly pixel #1 in both viewport and MVR export, with sub-millimeter precision regardless of camera angle or view direction.</p>
+
+      <h3>Auto-Select After Draw</h3>
+      <p>Drawing a circle or rectangle now keeps the tube selected with the properties panel open, so you can immediately adjust settings without re-clicking.</p>
+    </div>
+
+    <div class="card">
+      <h2>What's New in v1.3.0</h2>
+
+      <h3>Housing + Diffuser Split</h3>
+      <p>Square and rectangular tubes now render as two separate meshes: an opaque black U-channel housing and a selectable diffuser cap. Choose from Flat, Square, or Dome diffuser shapes. MVR export includes both materials separately so your visualizer can assign them independently.</p>
+
+      <h3>Pixel Beam Orientation</h3>
+      <p>Discrete pixel fixtures now include per-pixel rotation matrices pointing the beam toward the diffuser face. Pixels sit at the inner bottom of the housing channel.</p>
+
+      <h3>Shape Wizard</h3>
+      <p>Press <kbd>6</kbd> to open the Shape Wizard. Create box, triangle, pentagon, hexagon, star and more — each edge becomes a tube, auto-grouped with angle connectors at corners.</p>
+
+      <h3>Text to Tubes</h3>
+      <p>Convert text to tube paths using system or custom fonts (.ttf/.otf). Each letter outline becomes a closed tube.</p>
+
+      <h3>Generic Fixture Placeholders</h3>
+      <p>Toggle Placeholder mode in the Properties panel — no pixel spheres, just a fixture reference exported to MVR with custom names and facing direction (up/down/inward/outward).</p>
+    </div>
+
+    <div class="card">
+      <h2>Earlier Features (v1.2.x)</h2>
 
       <h3>Fixture Presets</h3>
       <p>Select a real NeonFlex product from the toolbar dropdown (e.g. LEDStructures LS360FLEX) and the app auto-fills the correct tube profile, pixel pitch, DMX channels, and maximum tube length. No more manual setup for common products.</p>
@@ -236,13 +268,9 @@
 
       <h3>Tube Grouping</h3>
       <p>Select multiple tubes in the left panel (hold <kbd>Shift</kbd> or <kbd>Ctrl</kbd> and click), then press <kbd>Ctrl+G</kbd> to group them. Now when you move one tube in the group, all of them move together — including connectors. Press <kbd>Ctrl+B</kbd> to ungroup.</p>
-      <p>Grouped tubes show a colored left border and chain icon in the list so you can see at a glance which tubes belong together.</p>
 
       <h3>Start Pixel Picker</h3>
-      <p>Visually pick where the first DMX pixel starts by hovering over the tube and clicking on a pixel position. Useful when your DMX chain doesn't start at the beginning of the tube.</p>
-
-      <h3>Improved Measurement Accuracy</h3>
-      <p>Tube length measurements are now more accurate on complex curves with many control points.</p>
+      <p>Visually pick where the first DMX pixel starts by hovering over the tube and clicking on a pixel position.</p>
     </div>
 
     <div class="card">
