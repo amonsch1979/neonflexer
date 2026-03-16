@@ -1,4 +1,4 @@
-# MAGICTOOLBOX NEONFLEXER — Beta v1.3.1
+# MAGICTOOLBOX NEONFLEXER — Beta v1.3.2
 
 3D NeonFlex LED tube designer for lighting professionals. Draw tubes in 3D, configure LED pixels, set DMX patch, and export as MVR for direct import into Capture, WYSIWYG, Depence, or any MVR-compatible visualizer.
 
@@ -134,7 +134,7 @@ Open in your browser: **[neonflexer.pages.dev](https://neonflexer.pages.dev)**
 
 ### Offline (Windows)
 
-1. **Download** — Go to [**Releases**](https://github.com/amonsch1979/neonflexer/releases/latest) and download **`NEONFLEXER-v1.3.1-offline.zip`**
+1. **Download** — Go to [**Releases**](https://github.com/amonsch1979/neonflexer/releases/latest) and download **`NEONFLEXER-v1.3.2-offline.zip`**
 2. **Unzip** anywhere on your computer
 3. **Launch:** Double-click `NEONFLEXER.bat`
 4. The app opens automatically in your browser
@@ -223,6 +223,9 @@ Tube bodies are exported as **GLB meshes with clean 0→1 UV coordinates** along
 You can have some tubes in Discrete mode and others in UV Mapped mode in the same project. The MVR export handles both correctly — discrete tubes get fixture elements, UV-mapped tubes get clean mesh geometry only.
 
 ## Changelog
+
+### Beta v1.3.2 — DWG Import
+- **DWG Import** — Import AutoCAD DWG files directly. Resolves block references (INSERT entities) recursively, extracting LINE, POLYLINE, ARC, CIRCLE, and SPLINE geometry. Entities display as colored lines in the viewport — click to select, then convert to NeonFlex tubes with your active fixture preset. Supports automatic scale detection (mm/cm/m/in/ft).
 
 ### Beta v1.3.1 — Start Pixel Direction Picker, Auto-Select After Draw
 - **Visual Direction Picker** — On closed tubes, after picking the start pixel, the two adjacent pixels highlight in green. Click the one that should come next to set the pixel direction — replaces the confusing CW/CCW popup
