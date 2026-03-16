@@ -29,6 +29,7 @@ export class Toolbar {
     this.onCommandPanel = null;   // () => {}
     this.onTextToTubes = null;    // () => {}
     this.onShapeWizard = null;    // () => {}
+    this.onImportDWG = null;      // () => {}
 
     this._build();
   }
@@ -109,6 +110,8 @@ export class Toolbar {
     this.loadBtn.classList.remove('active');
     this.importRefBtn = this._addButton(fileGroup, 'import-ref', 'Import Reference Model', this._importRefIcon(), '^I');
     this.importRefBtn.classList.remove('active');
+    this.importDwgBtn = this._addButton(fileGroup, 'import-dwg', 'Import DWG', this._importDwgIcon(), '');
+    this.importDwgBtn.classList.remove('active');
     this.exportBtn = this._addButton(fileGroup, 'export', 'Export MVR', this._exportIcon(), '^E');
     this.exportBtn.classList.remove('active');
     row1.appendChild(fileGroup);
@@ -371,6 +374,10 @@ export class Toolbar {
       if (this.onImportRef) this.onImportRef();
       return;
     }
+    if (id === 'import-dwg') {
+      if (this.onImportDWG) this.onImportDWG();
+      return;
+    }
     if (id === 'help') {
       if (this.onHelp) this.onHelp();
       return;
@@ -538,5 +545,8 @@ export class Toolbar {
   }
   _shapeWizIcon() {
     return `<svg viewBox="0 0 24 24"><polygon points="12,2 2.5,9.5 6,20.5 18,20.5 21.5,9.5" fill="none" stroke="currentColor" stroke-width="1.5"/></svg>`;
+  }
+  _importDwgIcon() {
+    return `<svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8l-6-6z" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/><path d="M14 2v6h6" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/><text x="12" y="18" font-size="7" font-weight="bold" fill="currentColor" text-anchor="middle" font-family="sans-serif">DWG</text></svg>`;
   }
 }

@@ -18,6 +18,8 @@ import { textToChains, loadBundledFont, parseCustomFont } from '../text/TextMapp
 import { TextToTubeDialog } from './TextToTubeDialog.js';
 import { ShapeWizardDialog } from './ShapeWizardDialog.js';
 import { ShapeGeometryGenerator } from '../shapes/ShapeGeometryGenerator.js';
+import { DWGImporter } from '../import/DWGImporter.js';
+import { DWGImportDialog } from './DWGImportDialog.js';
 import { autoSegment } from '../tube/AutoSegmenter.js';
 import { CurveBuilder } from '../drawing/CurveBuilder.js';
 import * as THREE from 'three';
@@ -52,6 +54,7 @@ export class UIManager {
     this.toolbar.onIsolate = () => this.toggleIsolation();
     this.toolbar.onTextToTubes = () => this._onTextToTubes();
     this.toolbar.onShapeWizard = () => this._onShapeWizard();
+    this.toolbar.onImportDWG = () => this._onImportDWG();
 
     // Isolation mode state
     this.isolationMode = false;
@@ -336,6 +339,18 @@ export class UIManager {
     this._refFileInput.style.display = 'none';
     document.body.appendChild(this._refFileInput);
     this._refFileInput.addEventListener('change', (e) => this._onRefFileSelected(e));
+
+    // Hidden file input for DWG import
+    this._dwgFileInput = document.createElement('input');
+    this._dwgFileInput.type = 'file';
+    this._dwgFileInput.accept = '.dwg';
+    this._dwgFileInput.style.display = 'none';
+    document.body.appendChild(this._dwgFileInput);
+    this._dwgFileInput.addEventListener('change', (e) => this._onDWGFileSelected(e));
+
+    // DWG importer and dialog
+    this._dwgImporter = new DWGImporter();
+    this.dwgImportDialog = new DWGImportDialog();
 
     // Reimport file input (reused for ghost entries)
     this._reimportFileInput = document.createElement('input');
@@ -898,6 +913,357 @@ export class UIManager {
       console.error('Ref model import error:', err);
       if (statusEl) statusEl.textContent = `Import failed: ${err.message}`;
     }
+  }
+
+  // ── DWG Import ──────────────────────────────────────────
+
+  _onImportDWG() {
+    this._dwgFileInput.value = '';
+    this._dwgFileInput.click();
+  }
+
+  async _onDWGFileSelected(e) {
+    const file = e.target.files[0];
+    if (!file) return;
+    const statusEl = document.getElementById('status-text');
+
+    // Clear any previous DWG overlay
+    this._clearDWGOverlay();
+
+    this.loadingOverlay.show('Loading DWG...');
+    this.loadingOverlay.setStatus(`Parsing ${file.name}...`);
+    await new Promise(r => requestAnimationFrame(r));
+
+    try {
+      const buffer = await file.arrayBuffer();
+      this._dwgBuffer = buffer;
+      this._dwgFileName = file.name;
+      this._dwgScale = null; // auto-detect
+
+      const result = await this._dwgImporter.parse(buffer); // auto-detect scale
+
+      this.loadingOverlay.hide();
+
+      if (result.tubes.length === 0) {
+        const info = result.stats;
+        if (statusEl) statusEl.textContent = `DWG: no convertible geometry found (${info.rawModelSpace} model-space entities, ${info.blocksResolved > 0 ? info.blocksResolved + ' from blocks' : 'no blocks resolved'})`;
+        return;
+      }
+
+      // Store parsed tube data and display as 3D lines
+      this._dwgParsedTubes = result.tubes;
+      this._dwgSelectedSet = new Set();
+      this._showDWGOverlay(result.tubes);
+
+      // Auto-resize grid to fit DWG
+      this._autoResizeGridForDWG(result.tubes);
+
+      // Show floating panel with entity list
+      this._showDWGPanel(file.name, result);
+
+      const blockInfo = result.stats.blocksResolved > 0 ? ` (${result.stats.blocksResolved} from blocks)` : '';
+      if (statusEl) statusEl.textContent = `DWG loaded: ${result.tubes.length} entities${blockInfo}. Click lines to select, then Convert.`;
+    } catch (err) {
+      this.loadingOverlay.hide();
+      console.error('DWG parse error:', err);
+      if (statusEl) statusEl.textContent = `DWG import failed: ${err.message}`;
+    }
+  }
+
+  /**
+   * Display parsed DWG entities as colored 3D lines in the viewport.
+   */
+  _showDWGOverlay(tubes) {
+    // Create overlay group
+    this._dwgOverlayGroup = new THREE.Group();
+    this._dwgOverlayGroup.name = 'DWG_Overlay';
+    this._dwgLines = [];
+
+    // Layer colors
+    const layerColors = {};
+    const palette = [0x55aaff, 0xffaa55, 0x55ff55, 0xff55aa, 0xaaff55, 0x55ffff, 0xffff55, 0xaa55ff];
+    let colorIdx = 0;
+
+    for (let i = 0; i < tubes.length; i++) {
+      const td = tubes[i];
+      if (td.points.length < 2) continue;
+
+      // Assign color by layer
+      if (!(td.layer in layerColors)) {
+        layerColors[td.layer] = palette[colorIdx++ % palette.length];
+      }
+      const color = layerColors[td.layer];
+
+      const geometry = new THREE.BufferGeometry().setFromPoints(td.points);
+      const material = new THREE.LineBasicMaterial({
+        color,
+        transparent: true,
+        opacity: 0.8,
+        depthTest: true,
+      });
+      const line = td.closed
+        ? new THREE.LineLoop(geometry, material)
+        : new THREE.Line(geometry, material);
+      line.userData.dwgIndex = i;
+      line.renderOrder = 1;
+      this._dwgOverlayGroup.add(line);
+      this._dwgLines[i] = line;
+    }
+
+    this.app.sceneManager.scene.add(this._dwgOverlayGroup);
+    this.app.sceneManager.requestRender();
+
+    // Add viewport click handler for DWG entity picking
+    const canvas = this.app.sceneManager.canvas;
+    this._dwgPointerHandler = (e) => this._onDWGPointerDown(e);
+    canvas.addEventListener('pointerdown', this._dwgPointerHandler);
+  }
+
+  /**
+   * Handle viewport clicks on DWG overlay lines.
+   */
+  _onDWGPointerDown(e) {
+    if (!this._dwgOverlayGroup || !this._dwgLines) return;
+    if (e.button !== 0) return; // left click only
+
+    const sm = this.app.sceneManager;
+    const raycaster = new THREE.Raycaster();
+    raycaster.params.Line.threshold = 0.03; // picking tolerance
+    const rect = sm.canvas.getBoundingClientRect();
+    const mouse = new THREE.Vector2(
+      ((e.clientX - rect.left) / rect.width) * 2 - 1,
+      -((e.clientY - rect.top) / rect.height) * 2 + 1
+    );
+    raycaster.setFromCamera(mouse, sm.camera);
+
+    const visibleLines = this._dwgLines.filter(l => l && l.visible);
+    const hits = raycaster.intersectObjects(visibleLines, false);
+
+    if (hits.length > 0) {
+      const idx = hits[0].object.userData.dwgIndex;
+      if (idx != null) {
+        e.stopImmediatePropagation(); // prevent tube selection underneath
+
+        if (e.shiftKey || e.ctrlKey) {
+          // Toggle
+          if (this._dwgSelectedSet.has(idx)) this._dwgSelectedSet.delete(idx);
+          else this._dwgSelectedSet.add(idx);
+        } else {
+          // Single select
+          this._dwgSelectedSet.clear();
+          this._dwgSelectedSet.add(idx);
+        }
+        this._updateDWGLineColors();
+        // Sync panel
+        if (this.dwgImportDialog.isVisible) {
+          this.dwgImportDialog.setSelection(this._dwgSelectedSet);
+        }
+      }
+    }
+  }
+
+  /**
+   * Update DWG line colors based on selection state.
+   */
+  _updateDWGLineColors() {
+    if (!this._dwgLines) return;
+    for (let i = 0; i < this._dwgLines.length; i++) {
+      const line = this._dwgLines[i];
+      if (!line) continue;
+      if (this._dwgSelectedSet.has(i)) {
+        line.material.color.setHex(0x00ff88);
+        line.material.opacity = 1.0;
+      } else {
+        // Restore original layer color
+        const td = this._dwgParsedTubes[i];
+        const palette = [0x55aaff, 0xffaa55, 0x55ff55, 0xff55aa, 0xaaff55, 0x55ffff, 0xffff55, 0xaa55ff];
+        const layers = [...new Set(this._dwgParsedTubes.map(t => t.layer))];
+        const layerIdx = layers.indexOf(td.layer);
+        line.material.color.setHex(palette[layerIdx % palette.length]);
+        line.material.opacity = 0.8;
+      }
+    }
+    this.app.sceneManager.requestRender();
+  }
+
+  /**
+   * Show the DWG import floating panel.
+   */
+  _showDWGPanel(fileName, result) {
+    const entities = result.tubes.map((t, i) => ({
+      name: t.name,
+      layer: t.layer,
+      closed: t.closed,
+      pointCount: t.points.length,
+    }));
+
+    this.dwgImportDialog.onConvertSelected = (indices) => {
+      this._convertDWGEntities(indices);
+    };
+
+    this.dwgImportDialog.onConvertAll = () => {
+      const allIndices = [];
+      for (let i = 0; i < this._dwgParsedTubes.length; i++) {
+        if (this._dwgLines[i] && this._dwgLines[i].visible) allIndices.push(i);
+      }
+      this._convertDWGEntities(allIndices);
+    };
+
+    this.dwgImportDialog.onClear = () => {
+      this._clearDWGOverlay();
+    };
+
+    this.dwgImportDialog.onScaleChange = async (scale) => {
+      this._dwgScale = scale;
+      // Re-parse with new scale and rebuild overlay
+      const statusEl = document.getElementById('status-text');
+      try {
+        const result2 = await this._dwgImporter.parse(this._dwgBuffer, { scale });
+        this._dwgParsedTubes = result2.tubes;
+        // Rebuild 3D lines
+        if (this._dwgOverlayGroup) {
+          this.app.sceneManager.scene.remove(this._dwgOverlayGroup);
+          this._dwgOverlayGroup.traverse(c => { if (c.geometry) c.geometry.dispose(); if (c.material) c.material.dispose(); });
+        }
+        // Remove old click handler, _showDWGOverlay re-adds it
+        const canvas = this.app.sceneManager.canvas;
+        if (this._dwgPointerHandler) canvas.removeEventListener('pointerdown', this._dwgPointerHandler);
+        this._dwgSelectedSet.clear();
+        this._showDWGOverlay(result2.tubes);
+        if (statusEl) statusEl.textContent = `DWG rescaled: ${result2.tubes.length} entities`;
+      } catch (err) {
+        console.error('DWG rescale error:', err);
+        if (statusEl) statusEl.textContent = `DWG rescale failed: ${err.message}`;
+      }
+    };
+
+    this.dwgImportDialog.onEntityToggle = (idx) => {
+      // Sync viewport selection from panel click
+      this._dwgSelectedSet = new Set(this.dwgImportDialog._selectedSet);
+      this._updateDWGLineColors();
+    };
+
+    this.dwgImportDialog.onEntityHover = (idx) => {
+      if (!this._dwgLines) return;
+      // Reset all non-selected to default
+      for (let i = 0; i < this._dwgLines.length; i++) {
+        const line = this._dwgLines[i];
+        if (!line || this._dwgSelectedSet.has(i)) continue;
+        line.material.opacity = (idx != null && i !== idx) ? 0.3 : 0.8;
+      }
+      // Highlight hovered
+      if (idx != null && this._dwgLines[idx] && !this._dwgSelectedSet.has(idx)) {
+        this._dwgLines[idx].material.color.setHex(0xffff55);
+        this._dwgLines[idx].material.opacity = 1.0;
+      }
+      this.app.sceneManager.requestRender();
+    };
+
+    this.dwgImportDialog.show({ fileName, entities, entityCounts: result.entityCounts });
+  }
+
+  /**
+   * Convert specific DWG entities to NeonFlex tubes.
+   */
+  _convertDWGEntities(indices) {
+    if (!indices.length || !this._dwgParsedTubes) return;
+
+    this.undoManager.capture();
+    const statusEl = document.getElementById('status-text');
+
+    // Build tube options from active preset
+    const preset = this.app.drawingManager.activePreset;
+    const presetId = this.app.drawingManager.activePresetId;
+    const tubeOptions = { tension: 0 };
+    if (preset) {
+      if (preset.profile != null) tubeOptions.profile = preset.profile;
+      if (preset.diameterMm != null) tubeOptions.diameterMm = preset.diameterMm;
+      if (preset.pixelsPerMeter != null) tubeOptions.pixelsPerMeter = preset.pixelsPerMeter;
+      if (preset.dmxChannelsPerPixel != null) tubeOptions.dmxChannelsPerPixel = preset.dmxChannelsPerPixel;
+      if (preset.materialPreset != null) tubeOptions.materialPreset = preset.materialPreset;
+      tubeOptions.fixturePreset = presetId;
+    }
+
+    const createdTubes = [];
+    for (const idx of indices) {
+      const td = this._dwgParsedTubes[idx];
+      if (!td || td.points.length < 2) continue;
+      const tube = this.app.tubeManager.createTube(td.points, {
+        ...tubeOptions,
+        closed: td.closed,
+        name: `DWG ${td.name} (${td.layer})`,
+      });
+      createdTubes.push(tube);
+
+      // Hide the DWG overlay line (converted)
+      if (this._dwgLines[idx]) {
+        this._dwgLines[idx].visible = false;
+      }
+    }
+
+    // Auto-group if multiple
+    if (createdTubes.length >= 2) {
+      const tm = this.app.tubeManager;
+      tm.selectedTubeIds.clear();
+      for (const t of createdTubes) tm.selectedTubeIds.add(t.id);
+      tm.groupSelected();
+      tm.selectTubeSingle(createdTubes[0]);
+    }
+
+    // Remove converted entities from panel list
+    this.dwgImportDialog.removeEntities(indices);
+
+    if (statusEl) statusEl.textContent = `Converted ${createdTubes.length} DWG entities to tubes`;
+    this.app.sceneManager.requestRender();
+  }
+
+  /**
+   * Remove DWG overlay lines and close panel.
+   */
+  /**
+   * Auto-resize grid to fit imported DWG entities.
+   */
+  _autoResizeGridForDWG(tubes) {
+    let maxExtent = 2;
+    for (const td of tubes) {
+      for (const p of td.points) {
+        maxExtent = Math.max(maxExtent, Math.abs(p.x), Math.abs(p.y), Math.abs(p.z));
+      }
+    }
+    // Round up to nearest standard grid size
+    const sizes = [2, 5, 10, 20, 50, 100, 200];
+    const needed = Math.ceil(maxExtent * 1.2); // 20% margin
+    let gridSize = sizes.find(s => s >= needed) || needed;
+    this.app.sceneManager.setGridSize(gridSize);
+    this.toolbar.setGridSize(gridSize);
+  }
+
+  _clearDWGOverlay() {
+    // Remove 3D overlay
+    if (this._dwgOverlayGroup) {
+      this.app.sceneManager.scene.remove(this._dwgOverlayGroup);
+      this._dwgOverlayGroup.traverse(c => {
+        if (c.geometry) c.geometry.dispose();
+        if (c.material) c.material.dispose();
+      });
+      this._dwgOverlayGroup = null;
+    }
+    // Remove click handler
+    if (this._dwgPointerHandler) {
+      this.app.sceneManager.canvas.removeEventListener('pointerdown', this._dwgPointerHandler);
+      this._dwgPointerHandler = null;
+    }
+    // Clean up state
+    this._dwgLines = null;
+    this._dwgParsedTubes = null;
+    this._dwgSelectedSet = null;
+    this._dwgBuffer = null;
+    // Hide panel
+    this.dwgImportDialog.hide();
+    this.app.sceneManager.requestRender();
+
+    const statusEl = document.getElementById('status-text');
+    if (statusEl) statusEl.textContent = 'DWG overlay cleared';
   }
 
   /**
@@ -2398,6 +2764,8 @@ export class UIManager {
         icon: icons._loadIcon(), action: () => t._onLoad() },
       { id: 'import-ref', label: 'Import Ref', shortcut: 'Ctrl+I', category: 'file',
         icon: icons._importRefIcon(), action: () => t._onImportRef() },
+      { id: 'import-dwg', label: 'Import DWG', shortcut: '', category: 'file',
+        icon: icons._importDwgIcon(), action: () => t._onImportDWG() },
       { id: 'export', label: 'Export MVR', shortcut: 'Ctrl+E', category: 'file',
         icon: icons._exportIcon(), action: () => t._onExport() },
 
