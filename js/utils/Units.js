@@ -28,7 +28,7 @@ export const PIXEL_PITCH_PRESETS = {
 };
 
 /** Common tube diameters in mm */
-export const TUBE_DIAMETERS_MM = [10, 12, 16, 20, 25];
+export const TUBE_DIAMETERS_MM = [10, 12, 16, 20, 25, 50, 100, 200, 500, 1000];
 
 /** Common flat tube sizes [width, height] in mm */
 export const FLAT_TUBE_SIZES_MM = [

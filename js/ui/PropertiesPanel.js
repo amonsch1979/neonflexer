@@ -223,7 +223,7 @@ export class PropertiesPanel {
     }
 
     if (tube.profile === 'round' || tube.profile === 'square') {
-      this._row(csGroup, 'Diameter', this._numberInput(tube.diameterMm, 4, 50, 0.5, 'mm', (val) => {
+      this._row(csGroup, 'Diameter', this._numberInput(tube.diameterMm, 4, 1000, 0.5, 'mm', (val) => {
         tube.diameterMm = val;
         this._emit('diameterMm');
       }));
@@ -833,7 +833,7 @@ export class PropertiesPanel {
       const mixedDia = this._getMixedValue(tubes, 'diameterMm');
       this._row(csGroup, 'Diameter', this._numberInput(
         mixedDia != null ? mixedDia : tubes[0].diameterMm,
-        4, 50, 0.5, mixedDia == null ? '(mixed)' : 'mm',
+        4, 1000, 0.5, mixedDia == null ? '(mixed)' : 'mm',
         (val) => {
           for (const tube of tubes) tube.diameterMm = val;
           this._emitBatch('diameterMm');

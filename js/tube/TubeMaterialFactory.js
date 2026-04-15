@@ -54,6 +54,18 @@ export class TubeMaterialFactory {
       attenuationColor: new THREE.Color(0xdde0e8),
       attenuationDistance: 0.01,
     },
+    pvc: {
+      label: 'PVC Flex Hose',
+      color: 0xe8d6b3,
+      transmission: 0.7,
+      roughness: 0.35,
+      metalness: 0.0,
+      ior: 1.52,
+      thickness: 0.002,
+      opacity: 0.92,
+      attenuationColor: new THREE.Color(0xd8b892),
+      attenuationDistance: 0.04,
+    },
   };
 
   /**

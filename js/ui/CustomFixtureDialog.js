@@ -132,7 +132,7 @@ export class CustomFixtureDialog {
 
     // Diameter / Width+Height
     if (cfg.profile === 'round' || cfg.profile === 'square') {
-      this._formRow(csSection, 'Diameter', this._numberWithUnit(cfg.diameterMm, 4, 50, 0.5, 'mm', 'cfg-diameter'));
+      this._formRow(csSection, 'Diameter', this._numberWithUnit(cfg.diameterMm, 4, 1000, 0.5, 'mm', 'cfg-diameter'));
 
       // Quick diameter buttons
       const quickRow = document.createElement('div');
