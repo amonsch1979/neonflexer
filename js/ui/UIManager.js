@@ -1383,11 +1383,14 @@ export class UIManager {
 
   /**
    * Rotate a closed tube's control points so the picked pixel becomes exactly
-   * pixel #1. Three-step approach:
-   *   1. Coarse rotation: shift CPs by the ideal amount
-   *   2. Reverse CPs if direction is backward
+   * pixel #1. Four-step approach:
+   *   1. Reverse CPs first if direction is backward (so the shift below targets
+   *      the final orientation)
+   *   2. Coarse rotation: shift CPs so pixel #0 lands nearest the picked pos
    *   3. Fine-tune: iteratively nudge CP #0 until pixel #0 lands exactly
    *      at the picked world position (sub-millimeter precision)
+   *   4. Revert the nudge if it pulled CP #0 off the original outline (corner
+   *      case) — keeps the tube shape intact at the cost of a sub-pixel offset
    */
   _rotateClosedTubeStart(tube, pixelIndex, reverse = false) {
     const curve = CurveBuilder.build(tube.controlPoints, tube.tension, tube.closed);
@@ -1399,16 +1402,24 @@ export class UIManager {
     const pickedPos = points[pixelIndex].clone();
     const N = tube.controlPoints.length;
 
-    // ── Step 1: Coarse rotation ──
-    // Pixel i is at t≈(i+0.5)/count, CP j is at t≈j/N
-    const idealShift = Math.round(pixelIndex * N / count) % N;
+    // ── Step 1: Reverse direction first (if backward) ──
+    // Reversing a closed Catmull-Rom's control points traces the same loop the
+    // other way (no shape change). It MUST happen before the coarse shift below:
+    // pixel #0 sits ~half a pixel past CP #0 toward its neighbor, so reversing
+    // after shifting would move pixel #0 a full pixel off the picked position,
+    // forcing the fine-tune to drag a corner CP and distort the shape.
+    if (reverse) {
+      tube.controlPoints.reverse();
+    }
 
-    // Try ideal ±1 to find which puts pixel #0 closest to picked position
+    // ── Step 2: Coarse rotation ──
+    // Find the shift that lands pixel #0 nearest the picked position. Search all
+    // shifts (cheap for a one-time click) — the ideal-index formula doesn't map
+    // cleanly once the control points have been reversed.
     let bestShift = 0;
     let bestDist = Infinity;
 
-    for (let delta = -1; delta <= 1; delta++) {
-      const shift = ((idealShift + delta) % N + N) % N;
+    for (let shift = 0; shift < N; shift++) {
       const rotated = [
         ...tube.controlPoints.slice(shift),
         ...tube.controlPoints.slice(0, shift),
@@ -1432,17 +1443,11 @@ export class UIManager {
       ];
     }
 
-    // ── Step 2: Reverse direction if needed ──
-    if (reverse) {
-      tube.controlPoints.reverse();
-      const last = tube.controlPoints.pop();
-      tube.controlPoints.unshift(last);
-    }
-
     // ── Step 3: Fine-tune CP #0 so pixel #0 lands exactly at picked position ──
     // Iterative correction: nudge CP #0 by the error between pixel #0 and target.
     // CatmullRom passes through CPs, so moving CP #0 approximately moves nearby
     // curve points by the same amount. Converges in 2-3 iterations.
+    const anchor = tube.controlPoints[0].clone(); // on-shape position before nudging
     for (let iter = 0; iter < 4; iter++) {
       const c = CurveBuilder.build(tube.controlPoints, tube.tension, tube.closed);
       if (!c) break;
@@ -1453,7 +1458,44 @@ export class UIManager {
       tube.controlPoints[0] = tube.controlPoints[0].clone().add(error);
     }
 
+    // ── Step 4: Undo the nudge if it pulled CP #0 OFF the outline ──
+    // On a straight run the nudge slides CP #0 along the edge (still on-shape) →
+    // keep it for exact placement. At a CORNER, no discrete pixel sits exactly on
+    // the vertex, so the nudge would drag the corner CP off both edges and bulge
+    // the shape (the reported bug). Detect that and revert to the on-shape anchor,
+    // accepting a sub-pixel start offset instead of distorting the geometry.
+    const offShapeTol = Math.max(0.002, 0.1 / tube.pixelsPerMeter); // ~10% of a pixel
+    if (this._distanceToCurve(tube.controlPoints[0], curve) > offShapeTol) {
+      tube.controlPoints[0] = anchor;
+    }
+
     tube.startPixel = 0;
+  }
+
+  /**
+   * Shortest distance from a point to a curve (coarse arc-length scan + local
+   * refine). Used to tell whether a moved control point still lies on the
+   * tube's original outline.
+   */
+  _distanceToCurve(point, curve) {
+    const COARSE = 400;
+    let bestT = 0;
+    let bestDist = Infinity;
+    for (let i = 0; i <= COARSE; i++) {
+      const t = i / COARSE;
+      const d = point.distanceToSquared(curve.getPointAt(t));
+      if (d < bestDist) { bestDist = d; bestT = t; }
+    }
+    const range = 1 / COARSE;
+    const tMin = Math.max(0, bestT - range);
+    const tMax = Math.min(1, bestT + range);
+    const FINE = 60;
+    for (let i = 0; i <= FINE; i++) {
+      const t = tMin + (tMax - tMin) * (i / FINE);
+      const d = point.distanceToSquared(curve.getPointAt(t));
+      if (d < bestDist) bestDist = d;
+    }
+    return Math.sqrt(bestDist);
   }
 
   // ── Snap to Ref ────────────────────────────────────────
@@ -2866,7 +2908,7 @@ export class UIManager {
           </div>
         </div>
         <div style="padding:12px 20px;border-top:1px solid var(--border);text-align:center;">
-          <a href="about.html" target="_blank" style="color:var(--accent);font-size:13px;font-weight:600;text-decoration:none;">Release Notes &amp; Info — Beta v1.3.2</a>
+          <a href="about.html" target="_blank" style="color:var(--accent);font-size:13px;font-weight:600;text-decoration:none;">Release Notes &amp; Info — Beta v1.3.3</a>
           <div style="margin-top:6px;font-size:11px;color:var(--text-muted);">BYFEIGNASSE | MAGICTOOLBOX</div>
         </div>
       </div>
