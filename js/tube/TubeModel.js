@@ -27,7 +27,8 @@ export class TubeModel {
     // Pixel config
     this.pixelMode = options.pixelMode || 'discrete'; // 'discrete' | 'uv-mapped'
     this.pixelsPerMeter = options.pixelsPerMeter || 60;
-    this.startPixel = options.startPixel || 0; // skip N pixels from start of curve
+    this.startPixel = options.startPixel || 0; // open: skip N from start | closed: pixel index that becomes #1
+    this.reversePixels = options.reversePixels || false; // closed tubes: count pixels in reverse direction
     this.pixelColor = options.pixelColor || '#ffffff';
     this.pixelEmissive = options.pixelEmissive !== undefined ? options.pixelEmissive : true;
 
@@ -126,6 +127,49 @@ export class TubeModel {
     return this.controlPoints.length >= 2;
   }
 
+  /**
+   * Ordered list of raw pixel indices defining this tube's numbering.
+   * Pure numbering — the geometry (control points) is never modified.
+   * - Closed tubes: ALL pixels, rotated to begin at startPixel, walking forward
+   *   or (reversePixels) backward around the loop.
+   * - Open tubes: pixels from startPixel to the end (skip-from-start semantics).
+   * @param {number} count total pixels sampled along the curve
+   * @returns {number[]} raw pixel indices in display / DMX order
+   */
+  orderedPixelIndices(count) {
+    if (!count || count <= 0) return [];
+    const start = Math.min(Math.max(0, this.startPixel || 0), count - 1);
+    const order = [];
+    if (this.closed) {
+      for (let i = 0; i < count; i++) {
+        const idx = this.reversePixels
+          ? ((start - i) % count + count) % count
+          : (start + i) % count;
+        order.push(idx);
+      }
+    } else {
+      for (let i = start; i < count; i++) order.push(i);
+    }
+    return order;
+  }
+
+  /**
+   * Position (1-based) at which a given raw pixel index appears in the ordered
+   * sequence — i.e. the number shown to the user for that pixel. Returns 0 if
+   * the raw index is not part of the active sequence (open tube, before start).
+   */
+  displayNumberForRawIndex(rawIdx, count) {
+    if (!count || count <= 0) return 0;
+    const start = Math.min(Math.max(0, this.startPixel || 0), count - 1);
+    if (this.closed) {
+      const pos = this.reversePixels
+        ? ((start - rawIdx) % count + count) % count
+        : ((rawIdx - start) % count + count) % count;
+      return pos + 1;
+    }
+    return rawIdx >= start ? (rawIdx - start + 1) : 0;
+  }
+
   /** Clone the model data */
   clone() {
     return new TubeModel({
@@ -141,6 +185,7 @@ export class TubeModel {
       pixelMode: this.pixelMode,
       pixelsPerMeter: this.pixelsPerMeter,
       startPixel: this.startPixel,
+      reversePixels: this.reversePixels,
       pixelColor: this.pixelColor,
       pixelEmissive: this.pixelEmissive,
       fixtureId: this.fixtureId,
@@ -174,6 +219,7 @@ export class TubeModel {
       pixelMode: this.pixelMode,
       pixelsPerMeter: this.pixelsPerMeter,
       startPixel: this.startPixel,
+      reversePixels: this.reversePixels,
       pixelColor: this.pixelColor,
       pixelEmissive: this.pixelEmissive,
       fixtureId: this.fixtureId,
@@ -206,6 +252,7 @@ export class TubeModel {
       pixelMode: data.pixelMode || 'discrete',
       pixelsPerMeter: data.pixelsPerMeter,
       startPixel: data.startPixel || 0,
+      reversePixels: data.reversePixels || false,
       pixelColor: data.pixelColor,
       pixelEmissive: data.pixelEmissive,
       fixtureId: data.fixtureId,

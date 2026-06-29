@@ -357,6 +357,7 @@ export class TubeManager {
       pixelMode: tube.pixelMode,
       pixelsPerMeter: tube.pixelsPerMeter,
       startPixel: tube.startPixel,
+      reversePixels: tube.reversePixels,
       pixelColor: tube.pixelColor,
       pixelEmissive: tube.pixelEmissive,
       dmxChannelsPerPixel: tube.dmxChannelsPerPixel,

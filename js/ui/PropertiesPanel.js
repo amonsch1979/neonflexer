@@ -389,7 +389,9 @@ export class PropertiesPanel {
         startPxWrap.appendChild(pickBtn);
         this._row(pxGroup, 'Start Px', startPxWrap);
 
-        const activePx = Math.max(1, totalPixels - (tube.startPixel || 0));
+        // Closed tubes use ALL pixels (start pixel rotates the numbering, never
+        // skips). Open tubes skip the first startPixel.
+        const activePx = tube.closed ? totalPixels : Math.max(1, totalPixels - (tube.startPixel || 0));
 
         this._row(pxGroup, 'Count', this._numberInput(totalPixels, 1, 9999, 1, 'px', (val) => {
           const count = Math.max(1, Math.round(val));
@@ -398,8 +400,15 @@ export class PropertiesPanel {
           this._build();
         }));
 
-        // Show active pixel count when startPixel > 0
-        if (tube.startPixel > 0) {
+        if (tube.closed && (tube.startPixel > 0 || tube.reversePixels)) {
+          // Closed: show which pixel is #1 and the numbering direction
+          const dir = tube.reversePixels ? 'reverse' : 'forward';
+          const startRow = document.createElement('div');
+          startRow.className = 'prop-row';
+          startRow.innerHTML = `<span class="prop-label">Numbering</span><span style="font-size:11px;font-family:var(--font-mono);color:var(--accent-dim)">#${(tube.startPixel || 0) + 1} first, ${dir}</span>`;
+          pxGroup.appendChild(startRow);
+        } else if (!tube.closed && tube.startPixel > 0) {
+          // Open: show active count after skipping
           const activeRow = document.createElement('div');
           activeRow.className = 'prop-row';
           activeRow.innerHTML = `<span class="prop-label">Active</span><span style="font-size:11px;font-family:var(--font-mono);color:var(--accent-dim)">${activePx}px (skip ${tube.startPixel})</span>`;
@@ -517,7 +526,7 @@ export class PropertiesPanel {
         if (curve) {
           const length = CurveBuilder.getLength(curve);
           const totalPixels = Math.max(1, Math.round(length * tube.pixelsPerMeter));
-          const activePx = Math.max(1, totalPixels - (tube.startPixel || 0));
+          const activePx = tube.closed ? totalPixels : Math.max(1, totalPixels - (tube.startPixel || 0));
           const ch = Number(tube.dmxChannelsPerPixel) || 3;
           const startUni = Number(tube.dmxUniverse) || 1;
           const startAddr = Number(tube.dmxAddress) || 1;

@@ -272,12 +272,11 @@ export class UIManager {
     this.startPixelPicker = new StartPixelPicker(app.sceneManager);
     this.startPixelPicker.onPick = (tube, pixelIndex, reverse) => {
       this.undoManager.capture();
-      if (tube.closed) {
-        // Closed tube: rotate + fine-tune so picked pixel becomes exactly pixel #1.
-        this._rotateClosedTubeStart(tube, pixelIndex, reverse);
-      } else {
-        tube.startPixel = pixelIndex;
-      }
+      // Pure numbering — never modify the geometry. For closed tubes the picked
+      // pixel becomes #1 and the direction flag controls which way the numbering
+      // walks the loop. The shape (control points) is left exactly as drawn.
+      tube.startPixel = pixelIndex;
+      if (tube.closed) tube.reversePixels = reverse;
       this.app.tubeManager.updateTube(tube);
       this.propertiesPanel.show(tube);
       this.setTool('select'); // restore select mode
@@ -1379,123 +1378,6 @@ export class UIManager {
     this.startPixelPicker.activate(tube);
     const statusEl = document.getElementById('status-text');
     if (statusEl) statusEl.textContent = 'Pick Start Pixel — Hover over pixels, click to set | Esc to cancel';
-  }
-
-  /**
-   * Rotate a closed tube's control points so the picked pixel becomes exactly
-   * pixel #1. Four-step approach:
-   *   1. Reverse CPs first if direction is backward (so the shift below targets
-   *      the final orientation)
-   *   2. Coarse rotation: shift CPs so pixel #0 lands nearest the picked pos
-   *   3. Fine-tune: iteratively nudge CP #0 until pixel #0 lands exactly
-   *      at the picked world position (sub-millimeter precision)
-   *   4. Revert the nudge if it pulled CP #0 off the original outline (corner
-   *      case) — keeps the tube shape intact at the cost of a sub-pixel offset
-   */
-  _rotateClosedTubeStart(tube, pixelIndex, reverse = false) {
-    const curve = CurveBuilder.build(tube.controlPoints, tube.tension, tube.closed);
-    if (!curve) return;
-
-    const { points, count } = CurveBuilder.getPixelPoints(curve, tube.pixelsPerMeter);
-    if (count === 0 || pixelIndex >= count) return;
-
-    const pickedPos = points[pixelIndex].clone();
-    const N = tube.controlPoints.length;
-
-    // ── Step 1: Reverse direction first (if backward) ──
-    // Reversing a closed Catmull-Rom's control points traces the same loop the
-    // other way (no shape change). It MUST happen before the coarse shift below:
-    // pixel #0 sits ~half a pixel past CP #0 toward its neighbor, so reversing
-    // after shifting would move pixel #0 a full pixel off the picked position,
-    // forcing the fine-tune to drag a corner CP and distort the shape.
-    if (reverse) {
-      tube.controlPoints.reverse();
-    }
-
-    // ── Step 2: Coarse rotation ──
-    // Find the shift that lands pixel #0 nearest the picked position. Search all
-    // shifts (cheap for a one-time click) — the ideal-index formula doesn't map
-    // cleanly once the control points have been reversed.
-    let bestShift = 0;
-    let bestDist = Infinity;
-
-    for (let shift = 0; shift < N; shift++) {
-      const rotated = [
-        ...tube.controlPoints.slice(shift),
-        ...tube.controlPoints.slice(0, shift),
-      ];
-      const testCurve = CurveBuilder.build(rotated, tube.tension, tube.closed);
-      if (!testCurve) continue;
-      const testPixels = CurveBuilder.getPixelPoints(testCurve, tube.pixelsPerMeter);
-      if (testPixels.points.length === 0) continue;
-
-      const d = pickedPos.distanceToSquared(testPixels.points[0]);
-      if (d < bestDist) {
-        bestDist = d;
-        bestShift = shift;
-      }
-    }
-
-    if (bestShift > 0) {
-      tube.controlPoints = [
-        ...tube.controlPoints.slice(bestShift),
-        ...tube.controlPoints.slice(0, bestShift),
-      ];
-    }
-
-    // ── Step 3: Fine-tune CP #0 so pixel #0 lands exactly at picked position ──
-    // Iterative correction: nudge CP #0 by the error between pixel #0 and target.
-    // CatmullRom passes through CPs, so moving CP #0 approximately moves nearby
-    // curve points by the same amount. Converges in 2-3 iterations.
-    const anchor = tube.controlPoints[0].clone(); // on-shape position before nudging
-    for (let iter = 0; iter < 4; iter++) {
-      const c = CurveBuilder.build(tube.controlPoints, tube.tension, tube.closed);
-      if (!c) break;
-      const px = CurveBuilder.getPixelPoints(c, tube.pixelsPerMeter);
-      if (px.points.length === 0) break;
-      const error = pickedPos.clone().sub(px.points[0]);
-      if (error.lengthSq() < 1e-10) break; // < 0.01mm — exact enough
-      tube.controlPoints[0] = tube.controlPoints[0].clone().add(error);
-    }
-
-    // ── Step 4: Undo the nudge if it pulled CP #0 OFF the outline ──
-    // On a straight run the nudge slides CP #0 along the edge (still on-shape) →
-    // keep it for exact placement. At a CORNER, no discrete pixel sits exactly on
-    // the vertex, so the nudge would drag the corner CP off both edges and bulge
-    // the shape (the reported bug). Detect that and revert to the on-shape anchor,
-    // accepting a sub-pixel start offset instead of distorting the geometry.
-    const offShapeTol = Math.max(0.002, 0.1 / tube.pixelsPerMeter); // ~10% of a pixel
-    if (this._distanceToCurve(tube.controlPoints[0], curve) > offShapeTol) {
-      tube.controlPoints[0] = anchor;
-    }
-
-    tube.startPixel = 0;
-  }
-
-  /**
-   * Shortest distance from a point to a curve (coarse arc-length scan + local
-   * refine). Used to tell whether a moved control point still lies on the
-   * tube's original outline.
-   */
-  _distanceToCurve(point, curve) {
-    const COARSE = 400;
-    let bestT = 0;
-    let bestDist = Infinity;
-    for (let i = 0; i <= COARSE; i++) {
-      const t = i / COARSE;
-      const d = point.distanceToSquared(curve.getPointAt(t));
-      if (d < bestDist) { bestDist = d; bestT = t; }
-    }
-    const range = 1 / COARSE;
-    const tMin = Math.max(0, bestT - range);
-    const tMax = Math.min(1, bestT + range);
-    const FINE = 60;
-    for (let i = 0; i <= FINE; i++) {
-      const t = tMin + (tMax - tMin) * (i / FINE);
-      const d = point.distanceToSquared(curve.getPointAt(t));
-      if (d < bestDist) bestDist = d;
-    }
-    return Math.sqrt(bestDist);
   }
 
   // ── Snap to Ref ────────────────────────────────────────

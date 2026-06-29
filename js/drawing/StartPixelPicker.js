@@ -205,7 +205,10 @@ export class StartPixelPicker {
 
       if (idx >= 0 && idx < this._allPoints.length) {
         this._hoveredIndex = idx;
-        const display = idx + 1; // 1-based for user display
+        // Number shown reflects the tube's current start + direction so the
+        // existing start pixel reads as #1 (closed tubes); falls back to raw
+        // 1-based for open tubes.
+        const display = this.tube.displayNumberForRawIndex(idx, this._allPoints.length) || (idx + 1);
 
         // Position marker ring at the pixel, facing the camera
         this._marker.position.copy(this._allPoints[idx]);
@@ -248,8 +251,8 @@ export class StartPixelPicker {
       this._marker.lookAt(this.sceneManager.camera.position);
       this._marker.visible = true;
 
-      // Show label
-      const display = idx + 1;
+      // Show label (number relative to current start + direction)
+      const display = this.tube.displayNumberForRawIndex(idx, this._allPoints.length) || (idx + 1);
       this._updateLabel(`#${display}`);
       this._labelSprite.position.copy(this._allPoints[idx]);
       this._labelSprite.position.y += this.tube.outerRadius * 3;

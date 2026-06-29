@@ -35,10 +35,10 @@ export class PixelDistributor {
     const { points, count } = CurveBuilder.getPixelPoints(curve, tubeModel.pixelsPerMeter);
     if (count === 0) return group;
 
-    // Skip startPixel pixels from the beginning of the curve
-    const startPx = tubeModel.startPixel || 0;
-    const activeStartIndex = startPx;
-    const activeCount = points.length - startPx;
+    // Active pixels in display order. Open tubes skip the first startPixel;
+    // closed tubes use ALL pixels (numbering is a rotation, never a skip).
+    const order = tubeModel.orderedPixelIndices(count);
+    const activeCount = order.length;
     if (activeCount <= 0) return group;
 
     // Pixel size = 30% of inner radius
@@ -59,34 +59,54 @@ export class PixelDistributor {
     const instancedMesh = new THREE.InstancedMesh(pixelGeo, pixelMaterial, activeCount);
     instancedMesh.name = `Tube_${tubeModel.id}_PixelsInstanced`;
 
+    // Final (offset-adjusted) position of a pixel given its raw index.
     const _refUp = new THREE.Vector3();
-    for (let i = 0; i < activeCount; i++) {
-      const pi = activeStartIndex + i;
+    const placedPos = (pi) => {
       const pos = points[pi];
-
       if (offsetDist > 0) {
-        // Compute curve normal (up/diffuser direction) at this pixel
         const t = count === 1 ? 0.5 : (pi + 0.5) / count;
         const tClamped = Math.min(Math.max(t, 0.001), 0.999);
         const tangent = curve.getTangentAt(tClamped).normalize();
         _refUp.set(0, 1, 0);
         if (Math.abs(tangent.dot(_refUp)) > 0.99) _refUp.set(1, 0, 0);
         const normal = _refUp.clone().sub(tangent.clone().multiplyScalar(_refUp.dot(tangent))).normalize();
-        // Offset pixel in -normal direction (toward housing bottom)
-        _matrix.makeTranslation(
+        return new THREE.Vector3(
           pos.x - normal.x * offsetDist,
           pos.y - normal.y * offsetDist,
           pos.z - normal.z * offsetDist
         );
-      } else {
-        _matrix.makeTranslation(pos.x, pos.y, pos.z);
       }
+      return pos.clone();
+    };
 
+    const firstPos = placedPos(order[0]);
+    for (let i = 0; i < activeCount; i++) {
+      const p = placedPos(order[i]);
+      _matrix.makeTranslation(p.x, p.y, p.z);
       instancedMesh.setMatrixAt(i, _matrix);
     }
     instancedMesh.instanceMatrix.needsUpdate = true;
-
     group.add(instancedMesh);
+
+    // ── Start-pixel markers ──
+    // The start pixel + direction is pure numbering (geometry never moves), so
+    // without a marker the viewport looks identical after a pick. Mark pixel #1
+    // (bright green) and #2 (dimmer) so the chosen start and direction are
+    // always visible and verifiable.
+    const markerGeo = new THREE.SphereGeometry(pixelSize * 1.9, 12, 12);
+    const m1 = new THREE.Mesh(markerGeo, new THREE.MeshBasicMaterial({ color: 0x33ff66, depthTest: false, transparent: true, opacity: 0.95 }));
+    m1.position.copy(firstPos);
+    m1.renderOrder = 997;
+    m1.name = `Tube_${tubeModel.id}_StartMarker`;
+    group.add(m1);
+    if (activeCount > 1) {
+      const m2 = new THREE.Mesh(new THREE.SphereGeometry(pixelSize * 1.3, 10, 10), new THREE.MeshBasicMaterial({ color: 0x1f9e4a, depthTest: false, transparent: true, opacity: 0.85 }));
+      m2.position.copy(placedPos(order[1]));
+      m2.renderOrder = 996;
+      m2.name = `Tube_${tubeModel.id}_DirMarker`;
+      group.add(m2);
+    }
+
     return group;
   }
 

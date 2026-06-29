@@ -225,7 +225,7 @@ You can have some tubes in Discrete mode and others in UV Mapped mode in the sam
 ## Changelog
 
 ### Beta v1.3.3 — Start Pixel Fix
-- **Fixed** — Setting the start pixel direction (reverse) on a closed tube (square/rectangle) no longer distorts the shape near corners. The outline stays intact while the start pixel snaps to the nearest pixel in the chosen direction.
+- **Fixed** — Setting the start pixel and direction on a closed tube (square/rectangle) no longer distorts the shape. Start pixel + direction are now pure numbering — the geometry is never modified, the picked pixel always becomes #1, and green markers show pixel #1 and the counting direction in the viewport.
 
 ### Beta v1.3.2 — DWG Import
 - **DWG Import** — Import AutoCAD DWG files directly. Resolves block references (INSERT entities) recursively, extracting LINE, POLYLINE, ARC, CIRCLE, and SPLINE geometry. Entities display as colored lines in the viewport — click to select, then convert to NeonFlex tubes with your active fixture preset. Supports automatic scale detection (mm/cm/m/in/ft).

@@ -186,7 +186,10 @@ export class MVRExporter {
 
     const length = CurveBuilder.getLength(curve);
     const totalPixels = Math.max(1, Math.round(length * tube.pixelsPerMeter));
-    const startPixel = tube.startPixel || 0;
+    // Closed tubes cover the whole loop (start pixel is a rotation of numbering,
+    // not a skip), so UV geometry spans all pixels from the curve seam. Open
+    // tubes skip the first startPixel.
+    const startPixel = tube.closed ? 0 : (tube.startPixel || 0);
     const activePx = Math.max(1, totalPixels - startPixel);
     const tOffset = startPixel / totalPixels; // curve position where active pixels begin
 
@@ -260,10 +263,12 @@ export class MVRExporter {
         offsetDist = tube.heightM / 2 - tube.wallThicknessMm * 0.001;
       }
 
-      // Skip startPixel pixels from the beginning
-      const startPx = tube.startPixel || 0;
+      // Pixel order: open tubes skip the first startPixel; closed tubes use all
+      // pixels rotated to begin at startPixel (forward or reverse). DMX channels
+      // are assigned in this order. Geometry is never modified.
+      const order = tube.orderedPixelIndices(count);
       const pixelData = [];
-      for (let i = startPx; i < points.length; i++) {
+      for (const i of order) {
         // t matches CurveBuilder formula: centered pixels at (i + 0.5) / count
         const t = count === 1 ? 0.5 : (i + 0.5) / count;
         const tClamped = Math.min(Math.max(t, 0.001), 0.999);
@@ -594,8 +599,10 @@ export class MVRExporter {
             </Fixture>`;
         }
       } else {
-        // Build pixel fixtures (skip for uv-mapped tubes)
-        const pixelNameOffset = tube.startPixel || 0;
+        // Build pixel fixtures (skip for uv-mapped tubes). Closed tubes are
+        // already ordered so element 0 is the start pixel → number from 1. Open
+        // tubes keep absolute numbering (first active pixel = startPixel + 1).
+        const pixelNameOffset = tube.closed ? 0 : (tube.startPixel || 0);
         for (let pi = 0; pi < (tube.pixelMode === 'uv-mapped' ? 0 : pixels.length); pi++) {
           const px = pixels[pi];
           const pos = px.pos;
